@@ -3,6 +3,7 @@
 
 #un-ignore files with extensions
 !*.*
+!Makefile
 !src
 !utils
 !README*
