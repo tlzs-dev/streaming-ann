@@ -1,0 +1,12 @@
+{
+	"port": 8081,
+	"input": {
+		"type": "io-plugin::httpd",
+		"port": "9002",
+	},
+	"engine": {
+		"type": "ai-engine::darknet",
+		"conf_file": "models/yolov3.cfg",
+		"weights_file": "models/yolov3.weights",
+	},
+}

@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="en">
+<!--
+   camera.html
+   
+   Copyright 2019 chehw <htc.chehw@gmail.com>
+   
+   This program is free software; you can redistribute it and/or modify
+   it under the terms of the GNU General Public License as published by
+   the Free Software Foundation; either version 2 of the License, or
+   (at your option) any later version.
+   
+   This program is distributed in the hope that it will be useful,
+   but WITHOUT ANY WARRANTY; without even the implied warranty of
+   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+   GNU General Public License for more details.
+   
+   You should have received a copy of the GNU General Public License
+   along with this program; if not, write to the Free Software
+   Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston,
+   MA 02110-1301, USA.
+   
+   
+-->
+
+<head>
+<meta charset="utf-8" />
+<title>Streaming-ANN Demo</title>
+<meta name="generator" content="Geany 1.29" />
+
+
+<script>
+var camera;
+var timer_id = 0;
+var cur_frame;
+var frame_number = 0;
+//~ var url = "http://localhost:8088/objdetect";
+var url = "https://192.168.1.40:8081/tlzs/demo";
+var face_recog_url = "http://localhost:8088/facerecog";
+
+function get_frame(image)
+{
+	cur_frame = image;
+//	console.log("cur_frame: type=" + cur_frame.type + ", length=" + cur_frame.size);
+}
+
+
+function on_update_frame()
+{
+	++frame_number;
+//	console.log("on_update_frame: frame_number=" + frame_number);
+	if(camera)
+	{
+		var canvas = document.getElementById("cr1");
+		//~ var cr = canvas.getContext('2d');
+		//~ cr.fillStyle = "black";
+		//~ cr.rect(0, 0, 640, 480);
+		//~ cr.fill();
+
+		var surface = document.createElement("canvas");
+		surface.style = "display: none";
+		surface.width = canvas.width;
+		surface.height = canvas.height;
+		
+		var cr_tmp = surface.getContext('2d');
+		cr_tmp.drawImage(camera, 0, 0);
+
+		var img = document.createElement("img");
+		img.src = surface.toDataURL("image/jpeg");
+		surface.toBlob(get_frame, "image/jpeg");
+
+		send_request(url, cur_frame, draw_detections, canvas, img);
+
+		img = null;
+	}
+}
+
+
+function camera_play() {
+	if(!camera) {
+		camera = document.getElementById("camera1");
+	};
+
+	if(! camera.srcObject || ! camera.isConnected)
+	{
+		var media_config = { video: true };
+		var err_handler = function(e) {
+			console.log('ERROR: ', e);
+		}
+
+		if(navigator.mediaDevices && navigator.mediaDevices.getUserMedia)
+		{
+			navigator.mediaDevices.getUserMedia(media_config).then(
+				function(stream) {
+				camera.srcObject = stream;
+				camera.play();
+			});
+
+		}
+	}else if(camera.paused)
+	{
+		camera.play();
+
+		
+	}
+	if(!timer_id)
+	{
+		timer_id = setInterval(on_update_frame, 300);
+	}
+//	console.log("camera: " + camera);
+}
+
+function camera_stop() {
+	if(camera)
+	{
+		camera.pause();
+		if(timer_id)
+		{
+			clearInterval(timer_id);
+			timer_id = 0;
+		}
+	}
+}
+
+
+/*
+ * HTTP POST:
+ * 	 url: AI-server URL
+ *   blob: raw image_data (image/jpeg or image/png)
+ *   Request:
+ * 		Method: POST
+ * 		Content-Type: blob.type
+ *   Response:
+ * 		Json result.
+ * 	{ "detections": [
+ *		{ "class": <class_index>, 	// (int)
+ * 		// (double) relative coordination, range: [ 0.0 ,1.0 ]
+ * 		  "x": x,					
+ * 		  "y": y,
+ * 		  "width": width,
+ * 		  "height": height,
+ * 		  "confidence": 0.99,
+ * 		  //... custom data
+ *      },
+ * 		// ...
+ * 	 ]
+ * }
+ */
+function send_request(url, blob, on_draw, canvas, frame)
+{
+	if(!blob) return;
+	var http = new XMLHttpRequest();
+	http.open('POST', url, true);
+	http.setRequestHeader('Content-Type', blob.type);
+
+	http.onreadystatechange = function() {
+	//	console.log("readyState: " + http.readyState + "status: " + http.status);
+		if(http.readyState == 4 && http.status == 200) {
+		var result = JSON.parse(http.responseText);
+			//   console.log("result: " + JSON.stringify(result));
+			on_draw(canvas, frame, result);
+		}
+	}
+	http.send(blob);
+}
+
+/*
+ * function draw_detections(canvas, src, result)
+ * Parameters: 
+ * 	canvas:	dst canvas
+ *  src:	origin image  ( <img> | <video> )
+ * 	result: json_result, eg.
+ * 	{
+		"detections": [
+			{ "x": 0.05, "y": 0.1, "width": 0.3, "height": 0.1 },
+			{ "x": 0.35, "y": 0.4, "width": 0.15, "height": 0.31 }
+		]
+	}
+ * @TODO: set src = current frame
+*/
+function draw_detections(canvas, src, result)
+{
+	if(debug_flags && debug_flags > 0) console.log(result);
+
+	var cr = canvas.getContext('2d');
+	if(src)	// draw origin frame
+	{
+		cr.drawImage(src, 0, 0);
+	}
+	if(! result) return;
+	
+	// draw detections (bounding boxes)
+	cr.strokeStyle = "#ffff00";
+	cr.lineWidth = 2;
+
+	var image_width = canvas.width;
+	var image_height = canvas.height;
+	
+	var detections = result['detections'];
+//	console.log("dets_count: " + detections.length);
+
+	cr.beginPath();
+	for(var i = 0; i < detections.length; ++i)
+	{
+		var det = detections[i];
+		var x = det['left'] * image_width;
+		var y = det['top'] * image_height;
+		var cx = det['width'] * image_width;
+		var cy = det['height'] * image_height;
+
+		cr.rect(x, y, cx, cy);
+		cr.font = "20px Arial";
+		cr.fillStyle = "blue";
+		cr.fillText(det['class'], x, y);
+	}
+	
+	cr.stroke();
+}
+
+</script>
+
+</head>
+
+<body>
+
+<div>
+<span><button id="start" onclick="camera_play();">Start Capture</button></span>
+<span><button id="stop" onclick="camera_stop();" >Stop Capture</button></span>
+</div>
+
+<div>
+<video id="camera1" width=640 height=480 style="display:none"></video>
+<button id="snap" class="custom_btn">Snap shot</button>
+<canvas id="cr1" width=640 height=480></canvas>
+</div>
+
+<div>
+<img id="image1"></img>
+</div>
+
+<div>
+<span><button id="debug" onclick="switch_debug_mode()">Switch Debug Mode</button></span>
+<span id="debug_window"></span>
+</div>
+
+<script>
+var debug_window = document.getElementById("debug_window");
+var urlParams = new URLSearchParams(window.location.search);
+var debug_flags = urlParams.get('debug');
+
+function switch_debug_mode()
+{
+	debug_flags = ! debug_flags;
+	debug_window.innerHTML = "debug_flags: " + debug_flags;
+}
+
+window.addEventListener("DOMContentLoaded", function() { 
+	//~ var video = document.getElementById('camera1');
+	//~ var media_config = { video: true };
+	//~ var err_handler = function(e) {
+		//~ console.loghttp://localhost:8081/tlzs/demo('ERROR: ', e);
+	//~ }
+
+	//~ if(navigator.mediaDevices && navigator.mediaDevices.getUserMedia)
+	//~ {
+		//~ navigator.mediaDevices.getUserMedia(media_config).then(
+			//~ function(stream) {
+			//~ video.srcObject = stream;
+			//~ video.play();
+		//~ });
+
+	//~ }
+	debug_window.innerHTML = "debug_flags: " + debug_flags;
+}, false);
+
+
+</script>
+
+
+</body>
+
+</html>
