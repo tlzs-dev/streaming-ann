@@ -702,11 +702,14 @@ static int video_source_pause(input_source_t * input)
 	video_source_t * src = (video_source_t *)priv->video_src;
 	assert(src->input == input && priv->input == input);
 	
-	GstStateChangeReturn ret_code = gst_element_set_state(src->pipeline, GST_STATE_READY);
+	GstStateChangeReturn ret_code = gst_element_set_state(src->pipeline, GST_STATE_PAUSED);
+	
+	debug_printf("pause() = %d\n", ret_code);
 	if(ret_code == GST_STATE_CHANGE_FAILURE) return -1;
 
+	
 	priv->is_running = 0;
-	priv->is_paused = 0;
+	priv->is_paused = 1;
 	return 0;
 }
 
@@ -833,8 +836,8 @@ static int input_source_on_fs_notify(filesystem_notify_t * fsnotify, const fsnot
 			printf("\t --> [new] file: %s\n", notify_data->event->name);
 			
 			char full_name[PATH_MAX] = "";
-			snprintf(full_name, sizeof(full_name), "%s/%s", notify_data->path_name, notify_data->event->name);
-			
+			int cb = snprintf(full_name, sizeof(full_name), "%s/%s", notify_data->path_name, notify_data->event->name);
+			assert(cb <= PATH_MAX);
 			if(src->mode == 0) // json and images
 			{
 				char * images_path = src->images_path;
@@ -900,7 +903,9 @@ static int input_source_on_fs_notify(filesystem_notify_t * fsnotify, const fsnot
 		}else if(notify_data->event->mask & IN_MOVED_FROM)
 		{
 			char path_name[PATH_MAX] = "";
-			snprintf(path_name, sizeof(path_name), "%s/%s", parent->path_name, notify_data->event->name);
+			int cb = snprintf(path_name, sizeof(path_name), "%s/%s", parent->path_name, notify_data->event->name);
+			assert(cb <= PATH_MAX);
+			
 			printf("\t --> [IN_MOVED_FROM] file: %s, child_path=%s\n", path_name, child->path_name);
 			
 			if(strcmp(path_name, child->path_name) == 0)
@@ -915,7 +920,8 @@ static int input_source_on_fs_notify(filesystem_notify_t * fsnotify, const fsnot
 			if(moved_path)
 			{
 				char path_name[PATH_MAX] = "";
-				snprintf(path_name, sizeof(path_name), "%s/%s", parent->path_name, notify_data->event->name);
+				int cb = snprintf(path_name, sizeof(path_name), "%s/%s", parent->path_name, notify_data->event->name);
+				assert(cb <= PATH_MAX);
 				
 				assert(moved_path->data == child);
 				printf("watching folder was renamed: from=%s, to=%s\n", moved_path->data->path_name, path_name);

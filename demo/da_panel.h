@@ -24,6 +24,14 @@ struct da_panel
 	double y_offset;
 	
 	void (* clear)(struct da_panel * panel);
+	
+	gboolean (* on_draw)(struct da_panel * panel, cairo_t * cr, void * user_data);
+	gboolean (* on_key_press)(struct da_panel * panel, guint keyval, guint state);
+	gboolean (* on_key_release)(struct da_panel * panel, guint keyval, guint state);
+	gboolean (* on_button_press)(struct da_panel * panel, guint button, double x, double y, guint state);
+	gboolean (* on_button_release)(struct da_panel * panel, guint button, double x, double y, guint state);
+	gboolean (* on_mouse_move)(struct da_panel * panel, double x, double y, guint state);
+	gboolean (* on_leave_notify)(struct da_panel * panel, double x, double y, guint state);
 };
 struct da_panel * da_panel_init(struct da_panel * panel, int image_width, int image_height, void * shell);
 void da_panel_cleanup(struct da_panel * panel);

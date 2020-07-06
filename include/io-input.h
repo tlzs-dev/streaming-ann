@@ -37,6 +37,7 @@ typedef struct io_input
 	// virtual interfaces: ( should be overided by io-plugin implementations )
 	int (* init)(struct io_input * input, json_object * jconfig);
 	int (* run)(struct io_input * input);
+	int (* pause)(struct io_input * input);
 	int (* stop)(struct io_input * input);
 	void (* cleanup)(struct io_input * input);
 	int (* load_config)(struct io_input * input, json_object * jconfig);	// reload config

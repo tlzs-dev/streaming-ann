@@ -52,7 +52,7 @@ static gboolean on_key_release(GtkWidget * da, GdkEventKey * event, struct da_pa
 static gboolean on_button_press(GtkWidget * da, GdkEventButton * event, struct da_panel * panel);
 static gboolean on_button_release(GtkWidget * da, GdkEventButton * event, struct da_panel * panel);
 static gboolean on_motion_notify(GtkWidget * da, GdkEventMotion * event, struct da_panel * panel);
-
+static gboolean on_leave_notify(GtkWidget * da, GdkEventCrossing * event, struct da_panel * panel);
 
 static void clear_surface(struct da_panel * panel)
 {
@@ -118,7 +118,9 @@ struct da_panel * da_panel_init(struct da_panel * panel, int image_width, int im
 		| GDK_POINTER_MOTION_MASK
 		| GDK_POINTER_MOTION_HINT_MASK
 		| GDK_BUTTON_PRESS_MASK
-		| GDK_BUTTON_RELEASE_MASK);
+		| GDK_BUTTON_RELEASE_MASK
+		| GDK_LEAVE_NOTIFY_MASK
+		);
 	
 	
 	
@@ -129,7 +131,8 @@ struct da_panel * da_panel_init(struct da_panel * panel, int image_width, int im
 	g_signal_connect(da, "button-press-event", G_CALLBACK(on_button_press), panel);
 	g_signal_connect(da, "button-release-event", G_CALLBACK(on_button_release), panel);
 	g_signal_connect(da, "motion-notify-event", G_CALLBACK(on_motion_notify), panel);
-
+	g_signal_connect(da, "leave-notify-event", G_CALLBACK(on_leave_notify), panel);
+	
 	return panel;
 }
 void da_panel_cleanup(struct da_panel * panel)
@@ -158,6 +161,8 @@ static void on_da_resize(GtkWidget * da, GdkRectangle * allocation, struct da_pa
 
 static gboolean on_da_draw(GtkWidget * da, cairo_t * cr, struct da_panel * panel)
 {
+	if(panel->on_draw) return panel->on_draw(panel, cr, panel->shell);
+	
 	if(panel->width < 1|| panel->height < 1) return FALSE;
 	if(NULL == panel->surface 
 		|| panel->image_width < 1 || panel->image_height < 1)
@@ -179,23 +184,50 @@ static gboolean on_da_draw(GtkWidget * da, cairo_t * cr, struct da_panel * panel
 
 static gboolean on_key_press(GtkWidget * da, GdkEventKey * event, struct da_panel * panel)
 {
+	if(panel->on_key_press) return panel->on_key_press(panel, event->keyval, event->state);
 	return FALSE;
 }
 
 static gboolean on_key_release(GtkWidget * da, GdkEventKey * event, struct da_panel * panel)
 {
+	if(panel->on_key_release) return panel->on_key_release(panel, event->keyval, event->state);
 	return FALSE;
 }
 
-static gboolean on_button_press(GtkWidget * da, GdkEventButton * event, struct da_panel * panel){
+static gboolean on_button_press(GtkWidget * da, GdkEventButton * event, struct da_panel * panel)
+{
+	if(panel->on_button_press) return panel->on_button_press(panel, event->button, 
+		event->x, event->y, event->state);
 	return FALSE;
 }
 
-static gboolean on_button_release(GtkWidget * da, GdkEventButton * event, struct da_panel * panel){
+static gboolean on_button_release(GtkWidget * da, GdkEventButton * event, struct da_panel * panel)
+{
+	if(panel->on_button_release) return panel->on_button_release(panel, event->button, 
+		event->x, event->y, event->state);
 	return FALSE;
 }
 
-static gboolean on_motion_notify(GtkWidget * da, GdkEventMotion * event, struct da_panel * panel){
+static gboolean on_motion_notify(GtkWidget * da, GdkEventMotion * event, struct da_panel * panel)
+{
+	if(panel->on_mouse_move) {
+		double x = event->x;
+		double y = event->y;
+		guint state = event->state; 
+		if(event->is_hint) {
+			gdk_window_get_device_position_double(event->window, event->device, 
+				&x, &y, &state);
+		}
+		return panel->on_mouse_move(panel, x, y, state);
+	}
+	return FALSE;
+}
+
+static gboolean on_leave_notify(GtkWidget * da, GdkEventCrossing * event, struct da_panel * panel)
+{
+	if(panel->on_leave_notify) {
+		return panel->on_leave_notify(panel, event->x, event->y, event->state);
+	}
 	return FALSE;
 }
 

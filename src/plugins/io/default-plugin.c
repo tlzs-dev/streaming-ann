@@ -129,6 +129,13 @@ static int io_plugin_stop(io_input_t * input)
 	return priv->stop(priv);
 }
 
+
+static int io_plugin_pause(io_input_t * input)
+{
+	input_source_t * priv = input->priv;
+	return priv->pause(priv);
+}
+
 static void io_plugin_cleanup(io_input_t * input)
 {
 	input_source_t * priv = input->priv;
@@ -151,6 +158,7 @@ int ann_plugin_init(io_input_t * input, json_object * jconfig)
 
 	input->run = io_plugin_run;
 	input->stop = io_plugin_stop;
+	input->pause = io_plugin_pause;
 	
 	input->cleanup = io_plugin_cleanup;
 	input->load_config = io_plugin_input_source_load_config;
