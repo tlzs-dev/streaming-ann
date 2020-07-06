@@ -1,0 +1,733 @@
+<h1>Streaming ANN:</h1>
+
+<h2>Table of Contents</h2>
+
+<pre><code>I. Plugins Programming Guide:
+II. Streaming-ann SDK API Reference
+III. Use Cases
+IV. Built-in Plugins and Modules
+</code></pre>
+
+<h2>I. Plugins Programming Guide:</h2>
+
+<ol>
+<li><p>plugins definitions:</p>
+
+<p><strong>Each plugin must contain and implement the following 3 definitions:</strong></p>
+
+<p>(1) a typename string: (plugin_type)</p>
+
+<p><code>#define ANN_PLUGIN_TYPE_STRING "io-plugin::httpclient"</code></p>
+
+<p>(2)  ann<em>plugin</em>get_type() function:</p>
+
+<p><code>const char * ann_plugin_get_type(void) { return ANN_PLUGIN_TYPE_STRING; }</code></p>
+
+<p>(3) ann<em>plugin</em>init() function:</p>
+
+<pre><code>int ann_plugin_init (
+    void * object,          // io_input_t or ai_engine_t
+    json_object * jconfig   // object-settings
+);
+</code></pre></li>
+<li><p>plugin class and virtual interfaces:</p>
+
+<p>(1) class: </p>
+
+<pre><code>typedef struct ann_plugin
+{
+
+
+<pre><code>void * handle;                  // &amp;lt;== dlopen()
+void * user_data;               // not used
+
+
+char * filename;                // plugin filename
+char * type;                    // plugin_type string
+void * query_interface;         // TODO:: query custom functions
+
+
+// virtual interfaces 
+void * init_func;           // init_function pointer
+</code></pre>
+
+}ann_plugin_t;
+</code></pre>
+
+<p>(2) virtual interfaces:</p>
+
+<pre><code>typedef const char * (*ann_plugin_get_type_function)(void);
+typedef int  (* ann_plugin_init_function)(void * object, json_object * jconfig);
+</code></pre></li>
+</ol>
+
+<h2>II. Streaming-ann SDK API Reference</h2>
+
+<p><em>* Description: *</em></p>
+
+<p>Since this SDK uses OOP implemented in C,
+Most of the class instances needs to be initialized by calling '<em>classname</em> _init()' API.</p>
+
+<p>Use ‘<em>classname</em> _cleanup ()’ to release resources</p>
+
+<ol>
+<li><p><em>* plugins manager (helpler class): *</em></p>
+
+<p><em>* (1) Definition: *</em></p>
+
+<pre><code>typedef struct ann_plugins_helpler
+{
+
+
+<pre><code>void * user_data;       // not used
+ssize_t max_size;       // max plugins
+ssize_t num_plugins;    // plugins count
+ann_plugin_t ** plugins;    
+
+
+// public functions
+ssize_t (* load)(struct ann_plugins_helpler * helpler, const char * plugins_path);
+int (* add)(struct ann_plugins_helpler * helpler, const char * filename);
+int (* remove)(struct ann_plugins_helpler * helpler, const char * filename);
+plugin_t * (* find)(struct ann_plugins_helpler * helpler, const char * sz_type);
+</code></pre>
+
+}ann_plugins_helpler_t;
+</code></pre>
+
+<p><em>* (2) API *</em>
+    ann<em>plugins</em>helpler<em>t * ann</em>plugins<em>helpler</em>init(</p>
+
+<pre><code>    ann_plugins_helpler_t * helpler,    // must be NULL
+    const char * plugins_path,          // plugin files path
+    void * user_data                    // not used
+);          
+ai_plugins_helpler_t * ai_plugins_helpler_get_default(void);
+void ai_plugins_helpler_cleanup(ai_plugins_helpler_t * helpler);
+</code></pre>
+
+<p><em>* (3) Example: *</em> (source-code: tests/test-plugins.c )</p>
+
+<pre><code>The following program demonstrates the usuage of 'ann_plugins_helpler' class.
+
+
+#include &lt;stdio.h&gt;
+#include &lt;stdlib.h&gt;
+#include &lt;string.h&gt;
+#include &lt;assert.h&gt;
+#include "ann-plugin.h"
+
+
+void ann_plugins_dump(ann_plugins_helpler_t * helpler);
+int main(int argc, char **argv)
+{
+    const char * plugins_path = "plugins";      // plugin files path
+    if(argc &gt; 1) plugins_path = argv[1];
+
+
+<pre><code>/* init plugins manager, MUST be initialized before any another streaming-ann-api calling */
+ann_plugins_helpler_t * helpler = ann_plugins_helpler_init(NULL, plugins_path, NULL);
+
+
+/* check plugins info */
+ann_plugins_dump(helpler);
+
+
+/* cleanup */
+ann_plugins_helpler_cleanup(helpler);
+return 0;
+</code></pre>
+
+}
+
+
+void ann_plugins_dump(ann_plugins_helpler_t * helpler)
+{
+    assert(helpler);
+    printf("==== %s(%p):: num_plugins=%ld\n", __FUNCTION__, helpler, (long)helpler-&gt;num_plugins);
+    ann_plugin_t ** plugins = helpler-&gt;plugins;
+    for(int i = 0; i &lt; helpler-&gt;num_plugins; ++i)
+    {
+        ann_plugin_t * plugin = plugins[i];
+        assert(plugin);
+
+
+<pre><code>    printf("%.3d: type=%s, filename=%s\n", i, plugin-&amp;gt;type, plugin-&amp;gt;filename); 
+}
+return;
+</code></pre>
+
+}
+</code></pre></li>
+<li><p><em>* io-module plugins *</em></p>
+
+<p>Description:
+    streaming-ann API Input/Output Module;</p>
+
+<p>(1) <strong>input_frame</strong> class: (ANN [input / output] data buffer)</p>
+
+<pre><code>enum input_frame_type
+{
+    input_frame_type_invalid = -1,
+    input_frame_type_unknown = 0,
+    input_frame_type_bgra = 1,
+    input_frame_type_jpeg = 2,
+    input_frame_type_png  = 3,
+
+
+<pre><code>input_frame_type_image_masks = 0x7FFF,
+input_frame_type_json_flag = 0x8000,
+</code></pre>
+
+};
+
+
+typedef struct input_frame
+{
+    union
+    {
+        bgra_image_t bgra[1];
+        bgra_image_t image[1];
+        struct
+        {
+            unsigned char * data;
+            int width;
+            int height;
+            int channels;
+            int stride;
+        };
+    };
+    ssize_t length;
+
+
+<pre><code>long frame_number;
+struct timespec timestamp[1];
+enum input_frame_type type;
+
+
+ssize_t cb_json;
+char * json_str;
+void * meta_data;   // json_object
+</code></pre>
+
+}input_frame_t;
+
+
+void input_frame_free(input_frame_t * frame);
+input_frame_t * input_frame_new();
+void input_frame_clear(input_frame_t * frame);
+
+
+int input_frame_set_bgra(input_frame_t * input, const bgra_image_t * bgra, const char * json_str, ssize_t cb_json);
+int input_frame_set_jpeg(input_frame_t * input, const unsigned char * data, ssize_t length, const char * json_str, ssize_t cb_json);
+int input_frame_set_png(input_frame_t * input, const unsigned char * data, ssize_t length, const char * json_str, ssize_t cb_json);
+</code></pre>
+
+<p>(2) <em>* io_input *</em> class</p>
+
+<pre><code>enum io_input_type
+{
+    io_input_type_invalid = -1,
+    io_input_type_default = 0,      // struct input-source
+    io_input_type_memory = 1,       
+    io_input_type_tcp_server,       // passive mode: listening user's inputs: tcp send
+    io_input_type_http_server,      // passive mode: listening user's inputs: HTTP POST
+    io_input_type_tcp_client,       // pull-mode, GET data from ip:port
+    io_input_type_http_client,      // pull-mode, GET data from url
+    io_input_type_custom = 999,     // custom plugins
+    io_input_types_count
+};
+
+
+enum io_input_type io_input_type_from_string(const char * sz_type);
+
+
+typedef struct io_input
+{
+    void * user_data;           // user's context
+    void * priv;                // io-plugin's private data
+    void * plugins_helpler;     // io_plugins_helpler_t
+
+
+<pre><code>enum io_input_type type;    // build-in
+char * input_type;          //
+char * name;                // input-id
+
+
+/* virtual interfaces: ( overided by io-plugin implementations ) */
+
+
+// Init and load settings, Each plugin has its own configuration format,
+// please refer to the sample json files in the plugins 'conf' folder
+int (* init)(struct io_input * input, json_object * jconfig);
+
+
+int (* run)(struct io_input * input);
+int (* stop)(struct io_input * input);
+void (* cleanup)(struct io_input * input);
+int (* load_config)(struct io_input * input, json_object * jconfig);    // reload settings
+int (* get_property)(struct io_input * input, const char * name, char ** p_value, size_t * p_length);
+int (* set_property)(struct io_input * input, const char * name, const char * value, size_t cb_value);
+
+
+// io_input::member_functions
+long (* get_frame)(struct io_input * input, long prev_frame, input_frame_t * frame);
+long (* set_frame)(struct io_input * input, const input_frame_t * frame);
+
+
+// user-defined callbacks
+int (* on_new_frame)(struct io_input * input, const input_frame_t * frame);
+
+
+// private data ( KEEP UNTOUCHED )
+void * frame_buffer;
+long frame_number;
+</code></pre>
+
+}io_input_t;
+
+
+io_input_t * io_input_init(io_input_t * input, const char * sz_type, void * user_data);
+void io_input_cleanup(io_input_t * input);
+</code></pre>
+
+<p>(3) <em>* Example: *</em> ** (source-code: tests/test-io-inputs.c )</p>
+
+<pre><code>#include &lt;stdio.h&gt;
+#include &lt;stdlib.h&gt;
+#include &lt;string.h&gt;
+#include &lt;assert.h&gt;
+#include &lt;gst/gst.h&gt;
+
+
+#include "ann-plugin.h"
+#include "io-input.h"
+
+
+#define IO_PLUGIN_DEFAULT "io-plugin::input-source"
+#define IO_PLUGIN_HTTPD "io-plugin::httpd"
+#define IO_PLUGIN_HTTP_CLIENT   "io-plugin::httpclient"
+
+
+/* notification::callback when a new frame is available  */
+int test_on_new_frame(io_input_t * input, const input_frame_t * frame)
+{
+    static long frame_number = 0;
+    assert(frame &amp;&amp; frame-&gt;data);
+    char sz_type[200] = "";
+    ssize_t cb_type = input_frame_type_to_string(frame-&gt;type, sz_type, sizeof(sz_type));
+    assert(cb_type &gt; 0);
+
+
+<pre><code>printf("==== frame_number: %ld ====\n", frame_number++);
+printf("\t: type: %s (0x%.8x)\n", sz_type, frame-&amp;gt;type);
+printf("\t: image_size: %d x %d\n", frame-&amp;gt;width, frame-&amp;gt;height);
+return 0;
+</code></pre>
+
+}
+
+
+json_object * load_config(const char * conf_file, const char * plugin_type)
+{
+    json_object * jconfig = NULL;
+    if(conf_file) return json_object_from_file(conf_file);
+
+
+<pre><code>jconfig = json_object_new_object();
+assert(jconfig);
+
+
+// use default settings
+if(strcasecmp(plugin_type, IO_PLUGIN_DEFAULT) == 0)
+{
+    // camera uri:  [rtsp/http/fsnotify/file]://camera_or_video_or_image_path,
+    static const char * camera_id = "input1";
+    static const char * camera_uri = "0";       // "0": local_camera (/dev/video0)
+
+
+    json_object_object_add(jconfig, "name", json_object_new_string(camera_id));
+    json_object_object_add(jconfig, "uri", json_object_new_string(camera_uri));
+}else if(strcasecmp(plugin_type, IO_PLUGIN_HTTPD) == 0)
+{
+    json_object_object_add(jconfig, "port", json_object_new_string("9001"));
+}else if(strcasecmp(plugin_type, IO_PLUGIN_HTTP_CLIENT) == 0)
+{
+    json_object_object_add(jconfig, "url", json_object_new_string("http://localhost:9001"));
+}
+return jconfig;
+</code></pre>
+
+}
+
+
+static const char * plugin_type = IO_PLUGIN_DEFAULT;
+static const char * plugins_path = "plugins";
+int parse_args(int argc, char ** argv);
+
+
+volatile int quit;
+int main(int argc, char **argv)
+{
+    int rc = 0;
+    gst_init(&amp;argc, &amp;argv);
+    parse_args(argc, argv);
+
+
+<pre><code>ann_plugins_helpler_init(NULL, plugins_path, NULL);
+io_input_t * input = io_input_init(NULL, plugin_type, NULL);
+assert(input);
+
+
+json_object * jconfig = load_config(NULL, plugin_type);
+rc = input-&amp;gt;init(input, jconfig);
+assert(0 == rc);
+
+
+/*
+ * input-&amp;gt;on_new_frame:  on new_frame available notification callback
+ *  if this callback is set to NULL,
+ *  use input-&amp;gt;get_frame() to retrieve the lastest frame
+*/ 
+input-&amp;gt;on_new_frame = test_on_new_frame; // nullable
+input-&amp;gt;run(input);
+
+
+if(strcasecmp(plugin_type, IO_PLUGIN_HTTPD) == 0)   // httpd only, patch to libsoup 
+{
+    GMainLoop * loop = g_main_loop_new(NULL, TRUE);
+    g_main_loop_run(loop);
+}else
+{
+    char command[200] = "";
+    char * line = NULL;
+    while((line = fgets(command, sizeof(command) - 1, stdin)))
+    {
+        if(line[0] == 'q') break;
+        break;
+    }
+}
+
+
+io_input_cleanup(input);
+return 0;
+</code></pre>
+
+}
+
+
+#include &lt;getopt.h&gt;
+int parse_args(int argc, char ** argv)
+{
+    static struct option options[] = {
+        {"plugins-dir", required_argument, 0, 'd'},
+        {"plugins-type", required_argument, 0, 't'},
+        {NULL}
+    };
+    int option_index = 0;
+    while(1)
+    {
+        int c = getopt_long(argc, argv, "d:t:", options, &amp;option_index);
+        if(c == -1) break;
+
+
+<pre><code>    switch(c)
+    {
+    case 'd': plugins_path = optarg; break;
+    case 't': plugin_type = optarg; break;
+    default:
+        fprintf(stderr, "invalid args: %c\n", c);
+        exit(1);
+    }
+}
+return 0;
+</code></pre>
+
+}
+</code></pre></li>
+<li><p><em>* ai-engine *</em> plugins:</p>
+
+<p>Description: darknet /opencv-dnn / caffe / tensorflow / torch plugins</p>
+
+<p>(1) <em>* ai_tensor *</em> class</p>
+
+<pre><code>enum ai_tensor_data_type
+{
+    ai_tensor_data_type_unknown = -1,
+    ai_tensor_data_type_float32 = 0,
+    ai_tensor_data_type_float64,
+    ai_tensor_data_type_uint8,
+    ai_tensor_data_type_uint16,
+    ai_tensor_data_type_uint32,
+    ai_tensor_data_type_uint64,
+    ai_tensor_data_types_count,
+
+
+<pre><code>ai_tensor_data_type_masks = 0x7fff,
+ai_tensor_data_type_gpu_flags = 0x8000,
+</code></pre>
+
+};
+typedef struct ai_tensor
+{
+    enum ai_tensor_data_type type;
+    void *      data;
+    int_dim4 dim[1];
+    size_t length;
+}ai_tensor_t;
+
+
+ai_tensor_t * ai_tensor_init(ai_tensor_t * tensor, enum ai_tensor_data_type type, const int_dim4 * size, const void * data);
+void ai_tensor_clear(ai_tensor_t * tensor);
+int ai_tensor_resize(ai_tensor_t * tensor, const int_dim4 * new_size);
+</code></pre>
+
+<p>(2) <em>* ai-engine *</em> class</p>
+
+<pre><code>typedef struct ai_engine
+{
+    void * user_data;
+    void * priv;            // ai_plugin_t *
+
+
+<pre><code>// virtual functions ( overided by plugins )
+int (* init)(struct ai_engine * engine, json_object * jconfig);
+void (* cleanup)(struct ai_engine * engine);
+
+
+int (* load_config)(struct ai_engine * engine, json_object * jconfig);
+int (* predict)(struct ai_engine * engine, const input_frame_t * frame, json_object ** p_jresults);
+int (* update)(struct ai_engine * engine, const ai_tensor_t * truth);
+int (* get_property)(struct ai_engine * engine, const char * name, void ** p_value);
+int (* set_property)(struct ai_engine * engine, const char * name, const void * value, size_t length);
+
+
+// public member functions
+ai_tensor_t * (* get_workspace)(struct ai_engine * engine);     // pre-allocated global memory (GPU or CPU)
+</code></pre>
+
+}ai_engine_t;
+
+
+ai_engine_t * ai_engine_init(ai_engine_t * engine, const char * plugin_type, void * user_data);
+void ai_engine_cleanup(ai_engine_t * engine);
+</code></pre>
+
+<p>(3) Examples: ( source-code: tests/test-ai-engine.c)</p>
+
+<pre><code>#include &lt;stdio.h&gt;
+#include &lt;stdlib.h&gt;
+#include &lt;string.h&gt;
+#include &lt;assert.h&gt;
+
+
+#include &lt;json-c/json.h&gt;
+#include "ann-plugin.h"
+#include "ai-engine.h"
+
+
+#include "utils.h"
+#include "input-frame.h"
+
+
+json_object * load_config(const char * conf_file, const char * engine_type)
+{
+    json_object * jconfig = NULL;
+    if(conf_file) jconfig = json_object_from_file(conf_file);
+
+
+<pre><code>if(NULL == jconfig)
+{
+    jconfig = json_object_new_object();
+    json_object_object_add(jconfig, "conf_file", json_object_new_string("models/yolov3.cfg"));
+    json_object_object_add(jconfig, "weights_file", json_object_new_string("models/yolov3.weights"));
+}
+
+
+return jconfig;
+</code></pre>
+
+}
+
+
+static const char * aiengine_type = "ai-engine::darknet";
+int main(int argc, char **argv)
+{
+    int rc = -1;
+    assert(ann_plugins_helpler_init(NULL, "plugins", NULL));
+
+
+<pre><code>ai_engine_t * engine = ai_engine_init(NULL, aiengine_type, NULL);
+assert(engine);
+
+
+json_object * jconfig = load_config(NULL, aiengine_type);
+rc = engine-&amp;gt;init(engine, jconfig);
+assert(0 == rc);
+
+
+// test
+const char * image_file = "1.jpg";
+input_frame_t * frame = input_frame_new();
+unsigned char * jpeg_data = NULL;
+ssize_t cb_data = load_binary_data(image_file, &amp;amp;jpeg_data);
+assert(jpeg_data &amp;amp;&amp;amp; cb_data &amp;gt; 0);
+
+
+rc = input_frame_set_jpeg(frame, jpeg_data, cb_data, NULL, 0);
+assert(0 == rc &amp;amp;&amp;amp; frame-&amp;gt;data &amp;amp;&amp;amp; frame-&amp;gt;width &amp;gt; 0 &amp;amp;&amp;amp; frame-&amp;gt;height &amp;gt; 0 &amp;amp;&amp;amp; frame-&amp;gt;length &amp;gt; 0);
+frame-&amp;gt;length = frame-&amp;gt;width * frame-&amp;gt;height * 4;
+
+
+json_object * jresults = NULL;
+rc = engine-&amp;gt;predict(engine, frame, &amp;amp;jresults);
+if(0 == rc)
+{
+    fprintf(stderr, "detections: %s\n", json_object_to_json_string_ext(jresults, JSON_C_TO_STRING_PRETTY));
+}
+
+
+input_frame_free(frame);
+if(jresults) json_object_put(jresults);
+if(jconfig) json_object_put(jconfig);
+
+
+ai_engine_cleanup(engine);
+return 0;
+</code></pre>
+
+}
+</code></pre></li>
+</ol>
+
+<h2>III. Use Case:</h2>
+
+<ol>
+<li><p>local-input --> local-AIengine --> local-output</p>
+
+<ul>
+<li><p>Local PC:</p>
+
+<p>[input]     : io<em>input</em>t * input = io<em>input</em>init(NULL, "ioplugin::default", ctx);</p>
+
+<p>[AI-engine] : ai<em>engine</em>t * engine1 = ai<em>engine</em>init(NULL, "aiengine::darknet", ctx);
+              ai<em>engine</em>t * engine2 = ai<em>engine</em>init(NULL, "aiengine::cvdnn", ctx);</p>
+
+<p>[output]    : json_object * jresults;</p></li>
+</ul>
+
+<p>Example:</p>
+
+<pre><code>int main() {
+    ann_plugins_helpler_init(NULL, plugin_path, NULL);
+    ai_context * ctx = new_ctx();
+
+
+<pre><code>ctx-&amp;gt;input = input;
+ctx-&amp;gt;engines_count = 2;
+ctx-&amp;gt;engines[0] = engine1;
+ctx-&amp;gt;engines[1] = engine2;
+
+
+input-&amp;gt;init(input, jinput);
+input-&amp;gt;on_new_frame = on_new_frame;
+input-&amp;gt;run(input);
+
+
+engine1-&amp;gt;init(engine1, jdarknet);
+engine2-&amp;gt;init(engine2, jfacenet);
+
+
+g_main_loop_run();
+
+
+cleanup();
+return 0;
+</code></pre>
+
+}
+
+
+int on_new_frame(io_input_t * input, const input_frame_t * frame)
+{
+    ai_context * ctx = input-&gt;user_data;
+    for(int i = 0; i &lt; ctx-&gt;engines_count; ++i)
+    {
+        json_object * jresults = NULL;
+        ai_engine_t * engine = ctx-&gt;enginnes[i];
+        ssize_t count = engine-&gt;predict(engine, frame, &amp;jresults);
+        if(count &amp;&amp; jresults)
+        {
+            // output
+        }
+        if(jresults) json_object_put(jresults);
+    }
+    return 0;
+}
+</code></pre></li>
+<li><p>local-input --> remote-AIengine --> local-output</p>
+
+<ul>
+<li><p>Local PC:</p>
+
+<p>[input]     : io<em>input</em>t * input = io<em>input</em>init(NULL, "ioplugin::default", NULL);</p>
+
+<p>[AI-engine] : io<em>input</em>t * ai<em>request = io</em>input_init(NULL, "ioplugin::httpclient", NULL);</p>
+
+<p>[output]    : ai<em>request->get</em>frame()->json_str </p></li>
+<li><p>Remote AI Server:</p>
+
+<p>[input]     : io<em>input</em>t * input = io<em>input</em>init(NULL, "ioplugin::httpd", ctx);</p>
+
+<p>[AI-engine] : ai<em>engine</em>t * engine1 = ai<em>engine</em>init(NULL, "aiengine::darknet", ctx);</p>
+
+<pre><code>        ai_engine_t * engine2 = ai_engine_init(NULL, "aiengine::cvdnn", ctx);
+
+
+<pre><code>    on_new_frame() --&amp;gt; engines-&amp;gt;predict();
+</code></pre>
+
+</code></pre>
+
+<p>[output]    : http response: (content-type: application/json)</p></li>
+</ul></li>
+<li><p>remote-input --> local-AIengine </p>
+
+<ul>
+<li><p>Remote:</p>
+
+<p><strong>input</strong>   : io<em>input</em>t * input = io<em>input</em>init(NULL, "ioplugin::default", NULL);</p>
+
+<p><strong>output</strong> : io<em>input</em>t * ai<em>request = io</em>input_init(NULL, "ioplugin::httpclient", NULL);</p></li>
+<li><p>Local PC:</p>
+
+<p><strong>input</strong>   : io<em>input</em>t * input = io<em>input</em>init(NULL, "ioplugin::httpd", ctx);</p>
+
+<p><strong>AI-engine</strong>: ai<em>engine</em>t * engine1 = ai<em>engine</em>init(NULL, "aiengine::darknet", ctx);</p>
+
+<pre><code>          ai_engine_t * engine2 = ai_engine_init(NULL, "aiengine::cvdnn", ctx);
+
+
+<pre><code>      engines-&amp;gt;predict() --&amp;gt; Redenderer(Merge(frame+json)) --&amp;gt; mjpg-&amp;gt;set_frame();
+</code></pre>
+
+</code></pre>
+
+<p><strong>output</strong> : motion-jpeg server</p></li>
+</ul></li>
+</ol>
+
+<h2>IV. Built-in Plugins and Modules</h2>
+
+<pre><code>    1. io-input plugins:
+        + default:  
+        + http-server
+        + http-client
+
+    2. ai-plugins:
+        + darknet      (YoloV3, resnet101, resnet152, vgg-16, yolo9000, rnn, go)
+        + opencv-dnn (face detection / facerecognition)
+        + customize ai-engines
+
+    3. Motion-JPEG Server
+</code></pre>
