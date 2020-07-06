@@ -50,9 +50,9 @@
 #define IO_PLUGIN_HTTP_CLIENT   "io-plugin::httpclient"
 
 
-static pthread_mutex_t g_mutex = PTHREAD_MUTEX_INITIALIZER;
-#define global_lock() 	pthread_mutex_lock(&g_mutex)
-#define global_unlock()	pthread_mutex_unlock(&g_mutex)
+//~ static pthread_mutex_t g_mutex = PTHREAD_MUTEX_INITIALIZER;
+//~ #define global_lock() 	pthread_mutex_lock(&g_mutex)
+//~ #define global_unlock()	pthread_mutex_unlock(&g_mutex)
 
 struct ai_context;
 typedef struct shell_context
@@ -106,8 +106,8 @@ static int on_new_frame(io_input_t * input, const input_frame_t * frame)
 	
 	pthread_mutex_lock(&shell->mutex);
 	if(!shell->is_busy) {
-		shell_set_frame(shell, frame);
 		shell->is_busy = 1;
+		shell_set_frame(shell, frame);
 		pthread_cond_signal(&shell->cond);
 	}
 	pthread_mutex_unlock(&shell->mutex);
@@ -210,10 +210,10 @@ static size_t on_response(void * ptr, size_t size, size_t n, void * user_data)
 	shell->jerr = jerr;
 	if(jerr == json_tokener_success) 
 	{
-		global_lock();
+		pthread_mutex_lock(&shell->mutex);
 		if(shell->jresult) json_object_put(shell->jresult);
 		shell->jresult = jresult;
-		global_unlock();
+		pthread_mutex_unlock(&shell->mutex);
 	}
 	json_tokener_reset(jtok);
 	return cb;
@@ -265,6 +265,7 @@ int ai_request(shell_context_t * shell, const input_frame_t * frame)
 	return 0;
 }
 
+static gboolean on_idle(shell_context_t * shell);
 void * ai_thread(void * user_data)
 {
 	shell_context_t * shell = user_data;
@@ -280,8 +281,10 @@ void * ai_thread(void * user_data)
 		rc = ai_request(shell, shell->frame);
 		
 		pthread_mutex_lock(&shell->mutex);
-		shell->is_busy = 0;
+		//shell->is_busy = 0;
 		shell->is_dirty = (0 == rc);
+		g_idle_add((GSourceFunc)on_idle, shell);
+		
 	}
 	
 	pthread_mutex_unlock(&shell->mutex);
@@ -320,10 +323,10 @@ shell_context_t * shell_context_init(int argc, char ** argv, void * user_data)
 	return shell;
 }
 
-static gboolean on_timeout(shell_context_t * shell);
+
 int shell_run(shell_context_t * shell)
 {
-	shell->timer_id = g_timeout_add(200, (GSourceFunc)on_timeout, shell);
+//	shell->timer_id = g_timeout_add(200, (GSourceFunc)on_timeout, shell);
 	gtk_main();
 	return 0;
 }
@@ -373,7 +376,7 @@ static void init_windows(shell_context_t * shell)
 	assert(panel);
 	shell->panels[0] = panel;
 	gtk_box_pack_start(GTK_BOX(vbox), panel->frame, TRUE, TRUE, 0);
-	gtk_widget_set_size_request(panel->frame, 640, 480);
+	gtk_widget_set_size_request(panel->da, 640, 480);
 	
 	g_signal_connect_swapped(window, "destroy", G_CALLBACK(shell_stop), shell);
 	gtk_widget_show_all(window);
@@ -381,14 +384,14 @@ static void init_windows(shell_context_t * shell)
 }
 
 static void draw_frame(da_panel_t * panel, const input_frame_t * frame, json_object * jresult);
-static gboolean on_timeout(shell_context_t * shell)
+static gboolean on_idle(shell_context_t * shell)
 {
 	if(shell->quit) return G_SOURCE_REMOVE;
 	
 	pthread_mutex_lock(&shell->mutex);
 	if(!shell->frame->data) {
 		pthread_mutex_unlock(&shell->mutex);
-		return G_SOURCE_CONTINUE;
+		return G_SOURCE_REMOVE;
 	}
 	
 	
@@ -398,14 +401,14 @@ static gboolean on_timeout(shell_context_t * shell)
 	input_frame_copy(frame, shell->frame);
 	if(shell->jresult) jresult = json_object_get(shell->jresult);
 	shell->is_dirty = 0;
-	
+	shell->is_busy = 0;
 	pthread_mutex_unlock(&shell->mutex);
 	
 	
 	draw_frame(shell->panels[0], frame, jresult);
 	input_frame_clear(frame);
 	if(jresult) json_object_put(jresult);
-	return G_SOURCE_CONTINUE;
+	return G_SOURCE_REMOVE;
 }
 
 static void draw_frame(da_panel_t * panel, const input_frame_t * frame, json_object * jresult)
