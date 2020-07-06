@@ -1,0 +1,29 @@
+#ignore all
+*
+
+#unignore files with extensions
+!*.*
+!README
+!LICENSE
+!Makefile
+!src/
+!conf/
+!include/
+!utils/
+!tests/
+!io-module/
+
+*.so*
+*.o
+bin/
+plugins/
+lib/
+backup/
+
+*.bak
+*.dat
+*.log
+*.jpg
+*.png
+
+

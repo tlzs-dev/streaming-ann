@@ -128,14 +128,14 @@ int start_ai_engine()
 	ai_engine_t * engine = ai_engine_init(NULL, engine_type, ctx);
 	assert(input && engine);
 	
-	rc = input->init(input, jinput);	assert(0 == rc);
+	//~ rc = input->init(input, jinput);	assert(0 == rc);
 	rc = engine->init(engine, jengine);	assert(0 == rc);
 	
 	ctx->input = input;
 	ctx->engine = engine;
 	
-	input->run(input);
-	printf("input: %p, type = %d\n", input, input->type);
+	//~ input->run(input);
+	//~ printf("input: %p, type = %d\n", input, input->type);
 	return rc;
 }
 

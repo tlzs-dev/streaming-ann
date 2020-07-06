@@ -25,7 +25,7 @@
 
 <head>
 <meta charset="utf-8" />
-<title>Streaming-ANN Demo</title>
+<title>untitled</title>
 <meta name="generator" content="Geany 1.29" />
 
 
@@ -34,11 +34,8 @@ var camera;
 var timer_id = 0;
 var cur_frame;
 var frame_number = 0;
-//~ var url = "http://localhost:8088/objdetect";
-var url = "https://192.168.1.40:8081/tlzs/demo";
+var url = "http://localhost:8088/objdetect";
 var face_recog_url = "http://localhost:8088/facerecog";
-var frame_width = 640;
-var frame_height = 480;
 
 function get_frame(image)
 {
@@ -74,6 +71,7 @@ function on_update_frame()
 		send_request(url, cur_frame, draw_detections, canvas, img);
 
 		img = null;
+		
 	}
 }
 
@@ -82,47 +80,22 @@ function camera_play() {
 	if(!camera) {
 		camera = document.getElementById("camera1");
 	};
+
 	
-	//~ function hasGetUserMedia() {
-  //~ // Note: Opera builds are unprefixed.
-  //~ return !!(navigator.getUserMedia || navigator.webkitGetUserMedia ||
-            //~ navigator.mozGetUserMedia || navigator.msGetUserMedia);
-//~ }
-	if(debug_flags)
-	{
-		debug_window.innerHTML  = "<p>navigator.getUserMedia: " + navigator.getUserMedia;
-		debug_window.innerHTML += "<p>navigator.webkitGetUserMedia: " + navigator.webkitGetUserMedia;
-		debug_window.innerHTML += "<p>navigator.mozGetUserMedia: " + navigator.mozGetUserMedia;
-		debug_window.innerHTML += "<p>navigator.msGetUserMedia: " + navigator.msGetUserMedia;
-		debug_window.innerHTML += "<p>navigator.mediaDevices: " + navigator.mediaDevices;
-	}
+
 	if(! camera.srcObject || ! camera.isConnected)
 	{
-		//~ var media_config = { video: true };
-		const media_config = {
-			audio: false,
-			video : {
-			//	facingMode: "user",
-			//	width: frame_width,
-			//	height: frame_height,
-			}
-		};
+		var media_config = { video: true };
 		var err_handler = function(e) {
 			console.log('ERROR: ', e);
 		}
-		
+
 		if(navigator.mediaDevices && navigator.mediaDevices.getUserMedia)
 		{
 			navigator.mediaDevices.getUserMedia(media_config).then(
 				function(stream) {
 				camera.srcObject = stream;
-				
-				camera.onloadedmetadata = function()
-				{
-					camera.play();
-				
-				//	debug_window.innerHTML = "video: size=" + camera.width + " x " + camera.height + ".";
-				}
+				camera.play();
 			});
 
 		}
@@ -194,8 +167,7 @@ function send_request(url, blob, on_draw, canvas, frame)
 }
 
 /*
- * function draw_detections(canvas, src, result)
- * Parameters: 
+ * draw_detections()
  * 	canvas:	dst canvas
  *  src:	origin image  ( <img> | <video> )
  * 	result: json_result, eg.
@@ -205,22 +177,27 @@ function send_request(url, blob, on_draw, canvas, frame)
 			{ "x": 0.35, "y": 0.4, "width": 0.15, "height": 0.31 }
 		]
 	}
- * @TODO: set src = current frame
-*/
+ */
+
+var flags = 0;
 function draw_detections(canvas, src, result)
 {
-	if(debug_flags && debug_flags > 0) console.log(result);
-
 	var cr = canvas.getContext('2d');
+//	console.log("src: " + src);
+
+	//cr.clearRect(0, 0, canvas.width, canvas.height);
+
+	//~ cr.fillStyle = "black";
+	//~ cr.rect(0, 0, cr.width, cr.height);
+	//~ cr.fill();
+
 	if(src)	// draw origin frame
 	{
-		if(debug_flags > 0) {
-			console.log("draw image: size=" + canvas.width + " x " + canvas.height + ".");
-			debug_window.innerHTML = "draw image: size=" + canvas.width + " x " + canvas.height + ".";
-		}
-		cr.drawImage(src, 0, 0, canvas.width, canvas.height)
+		cr.drawImage(src, 0, 0);
 	}
-	if(! result) return;
+
+	//~ if(flags > 1) return;
+	//~ flags++;
 	
 	// draw detections (bounding boxes)
 	cr.strokeStyle = "#ffff00";
@@ -236,15 +213,12 @@ function draw_detections(canvas, src, result)
 	for(var i = 0; i < detections.length; ++i)
 	{
 		var det = detections[i];
-		var x = det['left'] * image_width;
-		var y = det['top'] * image_height;
+		var x = det['x'] * image_width;
+		var y = det['y'] * image_height;
 		var cx = det['width'] * image_width;
 		var cy = det['height'] * image_height;
 
 		cr.rect(x, y, cx, cy);
-		cr.font = "20px Arial";
-		cr.fillStyle = "blue";
-		cr.fillText(det['class'], x, y);
 	}
 	
 	cr.stroke();
@@ -263,35 +237,21 @@ function draw_detections(canvas, src, result)
 </div>
 
 <div>
-<video id="camera1" style="display:none; width: 100%"></video>
-<canvas id="cr1" width="640" height="480" ></canvas>
-</div>
-
-<div id="renderer1" class="drawing_area">
-<img id="image1"></img>
+<video id="camera1" width=640 height=480 style="display:none"></video>
+<canvas id="cr1" width=640 height=480></canvas>
 </div>
 
 <div>
-<span><button id="debug" onclick="switch_debug_mode()">Switch Debug Mode</button></span>
-<span id="debug_window"></span>
+<img id="image1"></img>
 </div>
 
+
 <script>
-var debug_window = document.getElementById("debug_window");
-const urlParams = new URLSearchParams(window.location.search);
-var debug_flags = urlParams.get('debug');
-
-function switch_debug_mode()
-{
-	debug_flags = ! debug_flags;
-	debug_window.innerHTML = "debug_flags: " + debug_flags;
-}
-
 window.addEventListener("DOMContentLoaded", function() { 
 	//~ var video = document.getElementById('camera1');
 	//~ var media_config = { video: true };
 	//~ var err_handler = function(e) {
-		//~ console.loghttp://localhost:8081/tlzs/demo('ERROR: ', e);
+		//~ console.log('ERROR: ', e);
 	//~ }
 
 	//~ if(navigator.mediaDevices && navigator.mediaDevices.getUserMedia)
@@ -303,22 +263,8 @@ window.addEventListener("DOMContentLoaded", function() {
 		//~ });
 
 	//~ }
-	
-	
-	var width = urlParams.get('width');
-	var height = urlParams.get('height');
-	if(width) frame_width = width;
-	if(height) frame_height = height;
-	
-	//~ var canvas = document.getElementById("cr1");
-	//~ canvas.width = frame_width;
-	//~ canvas.height = frame_height;
-	url = window.location;
-	debug_window.innerHTML = "<p>debug_flags: " + debug_flags;
-	debug_window.innerHTML += "<p>url: " + url;
+
 }, false);
-
-
 </script>
 
 

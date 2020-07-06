@@ -500,11 +500,13 @@ Use ‘_classname_ _cleanup ()’ to release resources
 1. local-input --> local-AIengine --> local-output
 
 	+ Local PC:
-	
+        	
 		[input]		: io_input_t * input = io_input_init(NULL, "ioplugin::default", ctx);
+
 		[AI-engine]	: ai_engine_t * engine1 = ai_engine_init(NULL, "aiengine::darknet", ctx);
 					  ai_engine_t * engine2 = ai_engine_init(NULL, "aiengine::cvdnn", ctx);
-		[output]	: json_object * jresults;
+		
+        [output]	: json_object * jresults;
 
 	Example:
 	
@@ -599,8 +601,6 @@ Use ‘_classname_ _cleanup ()’ to release resources
 			+ default:  
 			+ http-server
 			+ http-client
-			+ tcp-server / tcp-client
-			+ default
 
 		2. ai-plugins:
 			+ darknet	   (YoloV3, resnet101, resnet152, vgg-16, yolo9000, rnn, go)
