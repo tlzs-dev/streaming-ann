@@ -116,7 +116,6 @@ int main(int argc, char **argv)
 	gboolean ok = FALSE;
 	GError * gerr = NULL;
 
-	
 	ok = soup_server_listen_all(server, 9090, SOUP_SERVER_LISTEN_IPV4_ONLY, &gerr);
 	if(!ok || gerr)
 	{
@@ -129,8 +128,7 @@ int main(int argc, char **argv)
 	for(GSList * uri = uris; uri; uri = uri->next)
 	{
 		gchar * sz_uri = soup_uri_to_string(uri->data, FALSE);
-		if(sz_uri)
-		{
+		if(sz_uri) {
 			printf("listening on: %s%s\n", sz_uri, path);
 		}
 		soup_uri_free(uri->data);

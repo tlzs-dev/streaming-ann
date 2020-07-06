@@ -252,14 +252,16 @@ int ai_request(shell_context_t * shell, const input_frame_t * frame)
 	struct curl_slist * headers = NULL;
 	headers = curl_slist_append(headers, "Content-Type: image/jpeg");
 	curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+	
 	CURLcode ret = 0;
 	ret = curl_easy_perform(curl);
-	if(ret != CURLE_OK)
-	{
+	curl_slist_free_all(headers);
+	
+	if(ret != CURLE_OK) {
 		fprintf(stderr, "curl_easy_perform() failed: %s\n", curl_easy_strerror(ret));
 		return -1;
 	}
-	curl_slist_free_all(headers);
+	
 	return 0;
 }
 
