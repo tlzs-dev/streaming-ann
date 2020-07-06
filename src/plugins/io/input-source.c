@@ -580,7 +580,7 @@ static int video_source_set_uri(video_source_t * src, input_source_t * input, co
 #define V4L2_SRC_FMT		"v4l2src device=%s "
 #define FILE_SRC_FMT		"filesrc location=\"%s\" ! decodebin "
 
-#define BGRA_PIPELINE 	" ! video/x-raw,format=I420 ! videoconvert "								\
+#define BGRA_PIPELINE 	" ! video/x-raw,width=640,height=480 ! videoconvert "						\
 						" ! video/x-raw,format=BGRA ! videoconvert ! identity name=\"filter\" "		\
 						" ! fakesink sync=true"														
 
