@@ -133,6 +133,7 @@ int main(int argc, char **argv)
 		}
 		soup_uri_free(uri->data);
 		uri->data = NULL;
+		g_free(sz_uri);
 	}
 	g_slist_free(uris);
 	
