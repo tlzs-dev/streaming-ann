@@ -14,7 +14,18 @@ LINKER=gcc -std=gnu99 -D_GNU_SOURCE
 CFLAGS = -Iinclude -g -Wall -D_DEBUG
 CFLAGS += $(shell pkg-config --cflags libsoup-2.4 gstreamer-1.0)
 
-LIBS = -lm -lpthread -ljson-c -ljpeg -lpng -lcairo
+LIBS = -lm -lpthread -ljpeg -lpng -lcairo
+
+
+OS=$(shell uname -s)
+
+ifeq ($(OS),MINGW64_NT-10.0)
+CFLAGS += -D_WIN32 -IC:/msys64/mingw64/include/
+LIBS += $(shell pkg-config --libs json-c)
+else
+LIBS += -ljson-c 
+endif
+
 
 SOURCES := $(wildcard *.c)
 OBJECTS := $(SOURCES:%.c=obj/%.o) 

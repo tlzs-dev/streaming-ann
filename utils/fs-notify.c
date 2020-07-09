@@ -20,7 +20,7 @@
  * 
  * 
  */
-
+#if !defined(_WIN32) && ! defined(WIN32)
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -447,4 +447,4 @@ int main(int argc, char ** argv)
 #endif
 
 
-
+#endif

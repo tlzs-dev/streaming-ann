@@ -29,6 +29,11 @@
 
 #include <pthread.h>
 #include <json-c/json.h>
+
+#if defined(_WIN32) || defined(WIN32)
+typedef int SOCKET;
+#endif
+
 #include <curl/curl.h>
 
 #include <glib.h>
@@ -508,7 +513,6 @@ static void * http_client_process(void * user_data)
 	pthread_t worker;	// worker thread (curl)
 	rc = pthread_create(&worker, NULL, worker_thread, client);
 	assert(0 == rc);
-	usleep(10);
 
 	CURL * curl = curl_easy_init();
 	assert(curl);

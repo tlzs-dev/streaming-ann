@@ -14,6 +14,21 @@ endif
 
 LDFLAGS = $(CFLAGS)
 
+ifeq (,$(OS))
+OS=$(shell uname -s)
+endif
+
+ifeq ($(OS),MINGW64_NT-10.0)
+CFLAGS += -D_WIN32 -IC:/msys64/mingw64/include/
+LIBS += $(shell pkg-config --libs json-c)
+endif
+
+ifeq ($(OS),Windows_NT)
+CFLAGS += -D_WIN32 -IC:/msys64/mingw64/include/
+LIBS += $(shell pkg-config --libs json-c)
+endif
+
+
 SOURCES := $(wildcard src/*.c)
 OBJECTS := $(SOURCES:src/%.c=obj/%.o)
 
@@ -42,6 +57,7 @@ $(UTILS_OBJECTS): obj/utils/%.o : utils/%.c
 	$(CC) -o $@ -c $< $(UTILS_CFLAGS)
 
 $(OBJECTS) : obj/%.o : src/%.c
+	echo "os: $(OS)"
 	$(CC) -o $@ -c $< $(CFLAGS)
 
 

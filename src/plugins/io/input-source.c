@@ -28,7 +28,10 @@
 #include <assert.h>
 
 #include "input-source.h"
+
+#if !defined(_WIN32) && !defined(WIN32)
 #include "fs-notify.h"
+#endif
 
 #include <pthread.h>
 #include <gst/gst.h>
@@ -194,7 +197,10 @@ static void static_file_source_cleanup(static_file_source_t * src);
 
 
 
-
+/*******************************************************
+ * fs-notify handler
+ *******************************************************/
+#if !defined(_WIN32) && !defined(WIN32)
 typedef struct fs_move_event_data
 {
 	uint32_t cookie;
@@ -275,6 +281,21 @@ static int fsnotify_source_play(input_source_t * input);
 static int fsnotify_source_stop(input_source_t * input);
 static int fsnotify_source_pause(input_source_t * input);
 static void fsnotify_source_cleanup(fsnotify_source_t * src);
+#else
+typedef struct fsnotify_source {
+	input_source_t * input;		// base object
+	input_frame_t frame[1];
+}fsnotify_source_t;
+static int fsnotify_source_set_uri(fsnotify_source_t * src, input_source_t * input, const char * cooked_uri, int subtype)
+{
+	return -1;
+}
+static void fsnotify_source_cleanup(fsnotify_source_t * src)
+{
+	if(src) free(src);
+	return;
+}
+#endif
 
 typedef struct input_source_private
 {
@@ -577,7 +598,11 @@ static int video_source_set_uri(video_source_t * src, input_source_t * input, co
 #define RTSP_SRC_FMT		"rtspsrc location=\"%s\" ! decodebin ! videoconvert "
 #define HTTP_SRC_FMT		"souphttpsrc location=\"%s\" ! decodebin ! videoconvert "
 #define HLS_SRC_FMT			"souphttpsrc location=\"%s\" ! hlsdemux ! decodebin ! videoconvert "
+#if !defined(_WIN32) && !defined(_WIN32)
 #define V4L2_SRC_FMT		"v4l2src device=%s "
+#else
+#define V4L2_SRC_FMT		"ksvideosrc device-index=%s "
+#endif
 #define FILE_SRC_FMT		"filesrc location=\"%s\" ! decodebin "
 
 #define BGRA_PIPELINE 	" ! videoconvert "						\
@@ -617,8 +642,12 @@ static int video_source_set_uri(video_source_t * src, input_source_t * input, co
 			cooked_uri);
 		break;
 	case input_source_type_v4l2:
-		cb = snprintf(gst_command, sizeof(gst_command), V4L2_SRC_FMT BGRA_PIPELINE,
-			cooked_uri);
+	//~ #if !defined(_WIN32) && !defined(_WIN32)
+		//~ cb = snprintf(gst_command, sizeof(gst_command), V4L2_SRC_FMT BGRA_PIPELINE,
+			//~ cooked_uri);
+	//~ #else
+		cb = snprintf(gst_command, sizeof(gst_command), "ksvideosrc" BGRA_PIPELINE);
+	//~ #endif
 		break;
 	default:
 		fprintf(stderr, "[ERROR]::unknown input type %d\n", (int)type);
@@ -794,7 +823,7 @@ static void static_file_source_cleanup(static_file_source_t * src)
 /***********************************************************************************
  * fsnotify_source
 ***********************************************************************************/
-
+#if !defined(_WIN32) && !defined(WIN32)
 #include <unistd.h>
 #include <libgen.h>
 #include <sys/inotify.h>
@@ -1071,3 +1100,4 @@ static void fsnotify_source_cleanup(fsnotify_source_t * src)
 {
 	return;
 }
+#endif

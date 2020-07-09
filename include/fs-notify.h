@@ -1,6 +1,8 @@
 #ifndef _FS_NOTIFY_H_
 #define _FS_NOTIFY_H_
 
+#if !defined(_WIN32) && ! defined(WIN32)
+
 #include <stdio.h>
 #ifdef __cplusplus
 extern "C" {
@@ -62,13 +64,10 @@ void filesystem_notify_cleanup(filesystem_notify_t * fsnotify);
 
 fsnotify_data_t * filesystem_notify_get_data(filesystem_notify_t * fsnotify, int index);
 
-//~ #ifndef debug_printf
-//~ #define debug_printf printf
-//~ #endif
-
-
 #ifdef __cplusplus
 }
+#endif
+
 #endif
 #endif
 
