@@ -24,6 +24,7 @@
 !index.html
 !*.pem
 !*.json
+!tools
 
 *.so*
 *.o
