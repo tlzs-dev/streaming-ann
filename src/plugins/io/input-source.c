@@ -642,12 +642,12 @@ static int video_source_set_uri(video_source_t * src, input_source_t * input, co
 			cooked_uri);
 		break;
 	case input_source_type_v4l2:
-	//~ #if !defined(_WIN32) && !defined(_WIN32)
-		//~ cb = snprintf(gst_command, sizeof(gst_command), V4L2_SRC_FMT BGRA_PIPELINE,
-			//~ cooked_uri);
-	//~ #else
+	#if !defined(_WIN32) && !defined(_WIN32)
+		cb = snprintf(gst_command, sizeof(gst_command), V4L2_SRC_FMT BGRA_PIPELINE,
+			cooked_uri);
+	#else
 		cb = snprintf(gst_command, sizeof(gst_command), "ksvideosrc" BGRA_PIPELINE);
-	//~ #endif
+	#endif
 		break;
 	default:
 		fprintf(stderr, "[ERROR]::unknown input type %d\n", (int)type);
