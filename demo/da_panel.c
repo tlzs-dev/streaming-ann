@@ -122,6 +122,7 @@ struct da_panel * da_panel_init(struct da_panel * panel, int image_width, int im
 		| GDK_LEAVE_NOTIFY_MASK
 		);
 	
+	gtk_widget_set_can_focus(da, TRUE);
 	
 	
 	g_signal_connect(da, "size-allocate", G_CALLBACK(on_da_resize), panel);

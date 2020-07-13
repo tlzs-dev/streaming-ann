@@ -30,6 +30,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <assert.h>
+#include <math.h>
 
 #include <sys/types.h>
 #include <fcntl.h>
@@ -106,6 +107,14 @@ typedef struct shell_context
 	
 	int points_count;
 	point_d points[MAX_POINTS];
+	
+	int edit_mode;
+	struct {
+		double x1, y1;
+		double x2, y2;
+	}selection;
+	
+	
 	
 }shell_context_t;
 shell_context_t * shell_context_init(int argc, char ** argv, void * user_data);
@@ -235,7 +244,7 @@ void shell_context_cleanup(shell_context_t * shell)
 	return;
 }
 
-//~ static gboolean on_draw(struct da_panel * panel, cairo_t * cr, void * user_data);
+static gboolean on_draw(struct da_panel * panel, cairo_t * cr, void * user_data);
 static gboolean on_key_press(struct da_panel * panel, guint keyval, guint state);
 static gboolean on_key_release(struct da_panel * panel, guint keyval, guint state);
 static gboolean on_button_press(struct da_panel * panel, guint button, double x, double y, guint state);
@@ -287,20 +296,19 @@ static void init_windows(shell_context_t * shell)
 	gtk_header_bar_pack_end(GTK_HEADER_BAR(header_bar), button);
 	g_signal_connect(button, "clicked", G_CALLBACK(on_save_config), shell);
 	
-
 	shell->window = window;
 	shell->header_bar = header_bar;
 	shell->treeview = treeview;
 	shell->uri_entry = uri_entry;
 	shell->panels[0] = panel;
 	
+	panel->on_draw = on_draw;
 	panel->on_button_press = on_button_press;
 	panel->on_button_release = on_button_release;
 	panel->on_key_press = on_key_press;
 	panel->on_key_release = on_key_release;
 	panel->on_mouse_move = on_mouse_move;
 	panel->on_leave_notify = on_leave_notify;
-	
 	
 	g_signal_connect_swapped(window, "destroy", G_CALLBACK(shell_stop), shell);
 	gtk_widget_show_all(window);
@@ -336,7 +344,6 @@ void draw_frame(da_panel_t * panel, const input_frame_t * frame, json_object * j
 	return;
 }
 
-
 static gboolean on_idle(shell_context_t * shell)
 {
 	if(shell->quit) return G_SOURCE_REMOVE;
@@ -352,31 +359,237 @@ static gboolean on_idle(shell_context_t * shell)
 	return G_SOURCE_REMOVE;
 }
 
+static gboolean on_draw(struct da_panel * panel, cairo_t * cr, void * user_data)
+{
+	shell_context_t * shell = user_data;
+	assert(shell);
+	
+	if(panel->width < 1|| panel->height < 1) return FALSE;
+	if(NULL == panel->surface 
+		|| panel->image_width < 1 || panel->image_height < 1)
+	{
+		cairo_set_source_rgba(cr, 0, 0, 0, 1);
+		cairo_paint(cr);
+		return FALSE;
+	}
+	
+	double sx = (double)panel->width / (double)panel->image_width;
+	double sy = (double)panel->height / (double)panel->image_height;
+	
+	cairo_save(cr);
+	cairo_scale(cr, sx, sy);
+	cairo_set_source_surface(cr, panel->surface, panel->x_offset, panel->y_offset);
+	cairo_paint(cr);
+	cairo_restore(cr);
+	//~ printf("points_count: %d\n", shell->points_count);
+	
+	global_param_t * params = shell->user_data;
+	assert(params);
+	if(params->count > 0)
+	{
+		cairo_new_path(cr);
+		for(ssize_t i = 0; i < params->count; ++i)
+		{
+			region_data_t * region = &params->regions[i];
+			
+			if(region->count > 0)
+			{
+				double x = region->points[0].x * panel->width;
+				double y = region->points[0].y * panel->height;
+				
+				cairo_move_to(cr, x, y);
+				cairo_arc(cr, x, y, 2, 0.0, M_PI * 2.0);
+				for(ssize_t ii = 0; ii < region->count; ++ii)
+				{
+					x = region->points[ii].x * panel->width;
+					y = region->points[ii].y * panel->height;
+					cairo_line_to(cr, x, y);
+				}
+				cairo_close_path(cr);
+				cairo_set_source_rgba(cr, 0, 1, 1, 0.6);
+				cairo_fill_preserve(cr);
+				cairo_set_source_rgba(cr, 0, 1, 1, 1);
+				cairo_stroke(cr);
+			}
+			
+		}
+		
+	}
+	
+	if(shell->points_count > 0)
+	{
+		cairo_new_path(cr);
+		double x = shell->points[0].x * panel->width;
+		double y = shell->points[0].y * panel->height;
+		
+		cairo_move_to(cr, x, y);
+		cairo_arc(cr, x, y, 2, 0.0, M_PI * 2.0);
+		for(int i = 1; i < shell->points_count; ++i)
+		{
+			x = shell->points[i].x * panel->width;
+			y = shell->points[i].y * panel->height;
+			cairo_line_to(cr, x, y);
+		}
+		cairo_close_path(cr);
+		cairo_set_source_rgba(cr, 1, 1, 0, 0.6);
+		cairo_fill_preserve(cr);
+		cairo_set_source_rgba(cr, 1, 1, 0, 1);
+		cairo_stroke(cr);
+	}
+	
+	if(shell->edit_mode)
+	{
+		double dashes[1] = { 2 };
+		cairo_set_line_width(cr, 1);
+		cairo_set_source_rgba(cr, 0, 1, 0, 0.6);
+		
+		double x = shell->selection.x1 * panel->width;
+		double y = shell->selection.y1 * panel->height;
+		double cx = shell->selection.x2 * panel->width - x;
+		double cy = shell->selection.y2 * panel->height - y;
+
+	#define SIZE_THRESHOLD (5.0)
+		if(fabs(cx) >= SIZE_THRESHOLD || fabs(cy) >= SIZE_THRESHOLD)
+		{
+			//~ cairo_rectangle(cr, x, y, cx, cy);
+			//~ cairo_fill_preserve(cr);
+			
+			//~ cairo_set_source_rgba(cr, 0, 1, 0, 1);
+			//~ cairo_set_dash(cr, dashes, 1, 0);
+			//~ cairo_stroke(cr);
+			
+			cairo_move_to(cr, x, y);
+			cairo_line_to(cr, x + cx, y + cy);
+			cairo_set_source_rgba(cr, 0, 1, 0, 1);
+			cairo_set_dash(cr, dashes, 1, 0);
+			cairo_stroke(cr);
+		}
+	#undef SIZE_THRESHOLD
+	}
+	
+	return FALSE;
+}
+
 static gboolean on_key_press(struct da_panel * panel, guint keyval, guint state)
 {
 	return FALSE;
 }
 static gboolean on_key_release(struct da_panel * panel, guint keyval, guint state)
 {
+	shell_context_t * shell = panel->shell;
+	assert(shell);
+	
+	// printf("keyval: %u, shift-masks: %d\n", keyval, (state & GDK_SHIFT_MASK));
+	if(shell->edit_mode && (state & GDK_SHIFT_MASK)) {
+		printf("points_count: %d\n", shell->points_count);
+		
+		
+		global_param_t * params = shell->user_data;
+		assert(params);
+		
+		int count = params->count;
+		if(count < MAX_REGIONS && shell->points_count > 0)
+		{
+			++params->count;
+			params->regions[count].count = shell->points_count;
+			memcpy(params->regions[count].points, shell->points, shell->points_count * sizeof(point_d));
+		}
+		
+		shell->points_count = 0;
+		shell->edit_mode = 0;
+		gtk_widget_queue_draw(panel->da);
+	}
+	
 	return FALSE;
 }
 static gboolean on_button_press(struct da_panel * panel, guint button, double x, double y, guint state)
 {
+	shell_context_t * shell = panel->shell;
+	assert(shell);
+	
+	gtk_widget_grab_focus(panel->da);
+	
+	shell->edit_mode = 0;
+	if(!(state & GDK_SHIFT_MASK)) return FALSE;
+	
+	
+	
+	shell->edit_mode = 1;
+	
+	if(shell->points_count == 0)
+	{
+		shell->selection.x1 = x / (double)panel->width;
+		shell->selection.y1 = y / (double)panel->height;
+		shell->selection.x2 = shell->selection.x1;
+		shell->selection.y2 = shell->selection.y1;
+	}else
+	{
+		gtk_widget_queue_draw(panel->da);
+		gtk_main_iteration();
+	}
+	
 	return FALSE;
 }
 static gboolean on_button_release(struct da_panel * panel, guint button, double x, double y, guint state)
 {
+	shell_context_t * shell = panel->shell;
+	assert(shell);
+	
+	if(button == 3) {	// right-button
+		shell->points_count = 0;
+		shell->edit_mode = 0;
+		gtk_widget_queue_draw(panel->da);
+		return FALSE;
+	}
+	
+	shell->edit_mode = state & GDK_SHIFT_MASK;
+	if(shell->edit_mode && panel->width > 1 && panel->height > 1)
+	{
+		if(state & GDK_SHIFT_MASK)
+		{
+			int count = shell->points_count++;
+			if(count < MAX_POINTS)
+			{
+				shell->points[count].x = x / (double)panel->width;
+				shell->points[count].y = y / (double)panel->height;
+				
+				shell->selection.x1 = shell->points[count].x;
+				shell->selection.y1 = shell->points[count].y;
+				
+				shell->selection.x2 = shell->points[count].x;
+				shell->selection.y2 = shell->points[count].y;
+			}
+		}
+	}
+	
+	
+	//~ shell->edit_mode = 0;
+	gtk_widget_queue_draw(panel->da);
+	
 	return FALSE;
 }
 
 static gboolean on_mouse_move(struct da_panel * panel, double x, double y, guint state)
 {
+	shell_context_t * shell = panel->shell;
+	assert(shell);
 	
+	if(state & GDK_SHIFT_MASK)
+	{
+		shell->selection.x2 = x / (double)panel->width;
+		shell->selection.y2 = y / (double)panel->height;
+		gtk_widget_queue_draw(panel->da);
+		while(gtk_main_iteration());
+	}
 	return FALSE;
 }
 
 static gboolean on_leave_notify(struct da_panel * panel, double x, double y, guint state)
 {
+	shell_context_t * shell = panel->shell;
+	assert(shell);
+	shell->edit_mode = 0;
+	
 	return FALSE;
 }
 
@@ -392,7 +605,6 @@ static void on_load_config(GtkWidget * button, shell_context_t * shell)
 		NULL);
 	assert(dlg);
 	GtkFileFilter * filter = gtk_file_filter_new();
-	
 	gtk_file_filter_set_name(filter, "json files");
 	gtk_file_filter_add_mime_type(filter, "application/json");
 	gtk_file_chooser_add_filter(GTK_FILE_CHOOSER(dlg), filter);
@@ -433,10 +645,8 @@ static void on_save_config(GtkWidget * button, shell_context_t * shell)
 	gtk_file_filter_add_mime_type(filter, "application/json");
 	gtk_file_chooser_add_filter(GTK_FILE_CHOOSER(dlg), filter);
 	
-	
 	if(shell->conf_file[0] == '\0') gtk_file_chooser_set_current_folder(GTK_FILE_CHOOSER(dlg), shell->app_path);
 	else gtk_file_chooser_set_filename(GTK_FILE_CHOOSER(dlg), shell->conf_file);
-
 	
 	gtk_widget_show_all(dlg);
 	int rc = gtk_dialog_run(GTK_DIALOG(dlg));
