@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<!--
+   upload.html
+   Copyright 2020 Che Hongwei <htc.chehw@gmail.com>
+   The MIT License (MIT)
+-->
+
+<head>
+<meta charset="utf-8" />
+<title>upload files</title>
+<meta name="generator" content="Geany 1.33" />
+
+<style>
+div,input {
+	font-size: 16px;
+}
+</style>
+
+<script>
+"use strict";
+var url = window.location.protocol + '//' + window.location.host + '/dataset/upload';
+
+var selected_file;
+var progress_bar;
+var progress_value;
+var filelist;
+function on_load()
+{
+	selected_file = document.getElementById('file1');
+	progress_bar = document.getElementById('progress_bar');
+	progress_value = document.getElementById('progress_value');
+	
+	filelist = document.getElementById('filelist');
+}
+
+	
+function on_file_changed() {
+	var file = selected_file.files[0];
+	if(file)
+	{
+		var fileinfo = document.getElementById('file_info');
+		fileinfo.innerHTML = '<p>file size: ' + file.size + '</p><p>file type: ' + file.type;
+	}
+	
+	
+	progress_bar.max = 100;
+	progress_bar.value = 0;
+	progress_value.innerHTML = '';
+	filelist.innerHTML = '';
+}
+
+function on_post_file()
+{
+	var file = selected_file.files[0];
+	if(!file || file.size <= 0) return;
+	
+	var http = new XMLHttpRequest();
+	
+	var upload_url = url + '?filename=' + encodeURI(file.name);
+	console.log("url: " + upload_url);
+	
+	http.open('POST', upload_url, true);
+	http.setRequestHeader("Content-Type", file.type);
+	
+	http.onload = function(e) {
+		console.log("onload: status=" + this.status);
+	}
+	http.onprogress = function(event) {
+		
+		progress_bar.max = event.total;
+		progress_bar.value = event.loaded;
+		progress_value.innerHTML = (event.loaded / event.total * 100) + '%';
+	}
+
+	http.onreadystatechange = function() {
+		if(http.readyState == XMLHttpRequest.DONE) {
+			
+			filelist.innerHTML = http.responseText;
+		}
+	}
+	
+	
+	http.send(file);
+}
+
+</script>
+
+</head>
+
+<body onload="on_load()">
+<div>
+<input class="input_file" type="file" name="file1" id="file1" onchange="on_file_changed()"><br>
+<input class="send_btn" type="button" value="upload" name="upload" onClick="on_post_file()"><br>
+<div id="file_info"></div>
+<div>
+	<progress class="progressbar" id='progress_bar' value="0" max="100"></progress>
+	<span id="progress_value"></span>
+</div>
+</div>
+<div id="filelist">
+</div>
+</body>
+
+</html>

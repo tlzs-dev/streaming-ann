@@ -545,20 +545,18 @@ static gboolean on_button_release(struct da_panel * panel, guint button, double 
 	shell->edit_mode = state & GDK_SHIFT_MASK;
 	if(shell->edit_mode && panel->width > 1 && panel->height > 1)
 	{
-		if(state & GDK_SHIFT_MASK)
+		if(state & GDK_SHIFT_MASK && shell->points_count < MAX_POINTS)
 		{
 			int count = shell->points_count++;
-			if(count < MAX_POINTS)
-			{
-				shell->points[count].x = x / (double)panel->width;
-				shell->points[count].y = y / (double)panel->height;
-				
-				shell->selection.x1 = shell->points[count].x;
-				shell->selection.y1 = shell->points[count].y;
-				
-				shell->selection.x2 = shell->points[count].x;
-				shell->selection.y2 = shell->points[count].y;
-			}
+			
+			shell->points[count].x = x / (double)panel->width;
+			shell->points[count].y = y / (double)panel->height;
+			
+			shell->selection.x1 = shell->points[count].x;
+			shell->selection.y1 = shell->points[count].y;
+			
+			shell->selection.x2 = shell->points[count].x;
+			shell->selection.y2 = shell->points[count].y;
 		}
 	}
 	
