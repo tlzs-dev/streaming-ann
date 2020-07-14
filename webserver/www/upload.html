@@ -14,7 +14,23 @@
 <style>
 div,input {
 	font-size: 16px;
+	
 }
+
+#filelist {
+	border-style: groove;
+}
+
+ul {
+	display: block;
+	list-style-type: circle;
+	margin-top: 1em;
+	margin-botton: 1em;
+	margin-left: 0;
+	margin-right: 0;
+	padding-left: 20px;
+}
+	
 </style>
 
 <script>
@@ -50,6 +66,33 @@ function on_file_changed() {
 	filelist.innerHTML = '';
 }
 
+function filelist_reload()
+{
+	var http = new XMLHttpRequest();
+	var get_filelist_url = window.location.protocol + '//' + window.location.host + '/dataset/getfilelist';
+	http.open('GET', get_filelist_url, true);
+	filelist.innerHTML = '';
+	http.onreadystatechange = function() {
+		console.log("filelist_reload():: status=" + http.status + ", readyState=" + http.readyState);
+		if(http.status == 200 && http.readyState == XMLHttpRequest.DONE) {
+			var jresponse = JSON.parse(http.responseText);
+			if(!jresponse) return;
+			
+			var response = '<p>path: [' + jresponse["path"] + ']</p>';
+			response += '<ul>';
+			var files = jresponse["files"];
+			for(var i = 0; i < files.length; ++i) {
+				response += '<li>' + files[i] + '</li>';
+			}
+			
+			response += '</ul>';
+			filelist.innerHTML = response;
+		}
+	}
+	http.send();
+	return;
+}
+
 function on_post_file()
 {
 	var file = selected_file.files[0];
@@ -77,6 +120,11 @@ function on_post_file()
 		if(http.readyState == XMLHttpRequest.DONE) {
 			
 			filelist.innerHTML = http.responseText;
+			
+			console.log('status: ' + http.status);
+			if(http.status == 200) {
+				filelist_reload();
+			}
 		}
 	}
 	

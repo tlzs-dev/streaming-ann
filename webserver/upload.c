@@ -39,10 +39,10 @@
 #include <pwd.h>
 #include <errno.h>
 
-//~ #include <json-c/json.h>
+#include <json-c/json.h>
 #include <sys/stat.h>
 #include <uuid/uuid.h>
-
+#include <dirent.h>
 
 typedef struct global_param
 {
@@ -174,6 +174,9 @@ static void on_upload(SoupServer * server, SoupMessage * msg, const char * path,
 	GHashTable * query, SoupClientContext * client, gpointer user_data)
 {
 	int rc = 0;
+	global_param_t * params = user_data;
+	assert(params && params->data_path);
+	
 	if(NULL == s_upload_page) {
 		s_upload_page_length = load_page("upload.html", &s_upload_page);
 	}
@@ -189,8 +192,8 @@ static void on_upload(SoupServer * server, SoupMessage * msg, const char * path,
 	}
 	
 	guint status = SOUP_STATUS_OK;
-	static const char * status_ok_text = "<p style=\"color:green\">[OK]<p>";
-	static const char * status_ng_text = "<p style=\"color:red\">[NG]<p>";
+	static const char * status_ok_text = "<p style=\"color:green\">[OK]</p>";
+	static const char * status_ng_text = "<p style=\"color:red\">[NG]</p>";
 	
 	if(msg->method == SOUP_METHOD_POST)
 	{
@@ -223,7 +226,7 @@ static void on_upload(SoupServer * server, SoupMessage * msg, const char * path,
 		
 		if(filename) {
 			char path_name[PATH_MAX] = "";
-			snprintf(path_name, sizeof(path_name), "/dataset/%s", filename);
+			snprintf(path_name, sizeof(path_name), "%s/%s", params->data_path, filename);
 			rc = rename(tmp_filename, path_name);
 			if(rc) status = SOUP_STATUS_INTERNAL_SERVER_ERROR;
 		}
@@ -234,9 +237,51 @@ static void on_upload(SoupServer * server, SoupMessage * msg, const char * path,
 	soup_message_set_status(msg, status);
 	return;
 }
+
+int regular_files_filter(const struct dirent * entry)
+{
+	return (entry->d_type == DT_REG);
+}
+
 static void on_get_file_list(SoupServer * server, SoupMessage * msg, const char * path, 
 	GHashTable * query, SoupClientContext * client, gpointer user_data)
 {
+	global_param_t * params = user_data;
+	fprintf(stderr, "%s(): method=%s\n", __FUNCTION__, msg->method);
+	if(msg->method == SOUP_METHOD_GET) {
+		struct dirent ** file_list = NULL;
+		int count = scandir(params->data_path, &file_list, regular_files_filter, versionsort);
+		json_object * jlist = json_object_new_object();
+		json_object_object_add(jlist, "path", json_object_new_string(params->data_path));
+		
+		json_object * jfiles = json_object_new_array();
+		json_object_object_add(jlist, "files", jfiles);
+		
+		if(file_list)
+		{
+			for(int i = 0; i < count; ++i) {
+				json_object_array_add(jfiles, json_object_new_string(file_list[i]->d_name));
+				free(file_list[i]);
+			}
+			free(file_list);
+		}
+		const char * response = json_object_to_json_string_ext(jlist, JSON_C_TO_STRING_PLAIN);
+		soup_message_set_response(msg, "application/json", SOUP_MEMORY_COPY, response, strlen(response));
+		soup_message_set_status(msg, SOUP_STATUS_OK);
+		json_object_put(jlist);
+		
+		return;
+	}else if(msg->method == SOUP_METHOD_OPTIONS) {// add CORS support 
+		SoupMessageHeaders * resp_hdrs = msg->response_headers;
+		soup_message_headers_append(resp_hdrs, "Access-Control-Allow-Origin", "*");
+		soup_message_headers_append(resp_hdrs, "Access-Control-Request-Method", "GET");
+		soup_message_headers_append(resp_hdrs, "Access-Control-Request-Headers", "Content-Type, Content-Length");
+		soup_message_headers_append(resp_hdrs, "Access-Control-Max-Age", "86400");
+		soup_message_set_status(msg, SOUP_STATUS_NO_CONTENT);
+		return;
+	}
+	
+	soup_message_set_status(msg, SOUP_STATUS_BAD_REQUEST);
 	return;
 }
 
