@@ -109,7 +109,7 @@ function on_post_file()
 	http.onload = function(e) {
 		console.log("onload: status=" + this.status);
 	}
-	http.onprogress = function(event) {
+	http.upload.onprogress = function(event) {
 		
 		progress_bar.max = event.total;
 		progress_bar.value = event.loaded;
