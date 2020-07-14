@@ -197,9 +197,7 @@ static void on_upload(SoupServer * server, SoupMessage * msg, const char * path,
 		const char * content_type = soup_message_headers_get_content_type(msg->request_headers, NULL);
 		long content_length = soup_message_headers_get_content_length(msg->request_headers);
 		printf("content_type: %s, length=%ld\n", content_type, content_length);
-		
-		printf("data: %s\n", msg->request_body->data);
-		
+	
 		char tmp_filename[1024] = "/tmp/";
 		char * filename = NULL;
 		if(query) {
@@ -222,7 +220,6 @@ static void on_upload(SoupServer * server, SoupMessage * msg, const char * path,
 			
 			assert(cb == content_length);
 		}
-		
 		
 		if(filename) {
 			char path_name[PATH_MAX] = "";
