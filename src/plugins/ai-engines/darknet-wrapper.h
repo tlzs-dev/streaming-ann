@@ -33,7 +33,7 @@ typedef struct darknet_context
 	ssize_t (* predict)(struct darknet_context * darknet, const bgra_image_t frame[1], ai_detection_t ** p_results);
 }darknet_context_t;
 
-darknet_context_t * darknet_context_new(const char * cfg_file, const char * weights_file, void * user_data);
+darknet_context_t * darknet_context_new(const char * cfg_file, const char * weights_file, const char * labels_file, void * user_data);
 void darknet_context_free(darknet_context_t * darknet);
 
 

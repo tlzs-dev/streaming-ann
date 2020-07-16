@@ -153,14 +153,15 @@ int ann_plugin_init(ai_engine_t * engine, json_object * jconfig)
 {
 	const char * cfg_file = "conf/yolov3.cfg";
 	const char * weights_file = "models/yolov3.weights";
-	//~ const char * labels_file = "conf/coco.names";
+	const char * labels_file = "conf/coco.names";
+	
 	if(jconfig)
 	{
 		cfg_file = json_get_value(jconfig, string, conf_file);
 		weights_file = json_get_value(jconfig, string, weights_file);
-	//	labels_file = json_get_value(jconfig, string, labels_file);
+		labels_file = json_get_value(jconfig, string, labels_file);
 	}
-	darknet_context_t * darknet = darknet_context_new(cfg_file, weights_file, engine);
+	darknet_context_t * darknet = darknet_context_new(cfg_file, weights_file, labels_file, engine);
 	assert(darknet);
 
 	engine->priv = darknet;

@@ -36,6 +36,21 @@
 #include <libsoup/soup.h>
 #include "ai-engine.h"
 #include "ann-plugin.h"
+#include "utils.h"
+
+typedef struct global_param
+{
+	const char * conf_file;
+	unsigned int port;
+	const char * plugins_dir;
+	
+	SoupServer * server;
+	json_object * jconfig;
+	ssize_t count;
+	ai_engine_t ** engines;
+}global_param_t;
+global_param_t * global_param_parse_args(global_param_t * params, int argc, char ** argv);
+void global_param_cleanup(global_param_t * params);
 
 static pthread_mutex_t g_mutex = PTHREAD_MUTEX_INITIALIZER;
 #define global_lock()	pthread_mutex_lock(&g_mutex)
@@ -46,14 +61,30 @@ void on_request_ai_engine(SoupServer * server, SoupMessage * msg, const char * p
 	GHashTable * query, SoupClientContext * client, gpointer user_data)
 {
 	assert(user_data);
-	ai_engine_t * engine = user_data;
-	printf("method: %s\n", msg->method);
+	global_param_t * params = user_data;
 	
+	printf("method: %s\n", msg->method);
 	if(msg->method != SOUP_METHOD_POST) 
 	{
 		soup_message_set_status(msg, SOUP_STATUS_BAD_REQUEST);
 		return;
 	}
+	
+	int engine_index = 0;
+	if(query)
+	{
+		const char * sz_index = g_hash_table_lookup(query, "engine");
+		if(sz_index)
+		{
+			engine_index = atoi(sz_index);
+			if(engine_index < 0 || engine_index >= params->count) {
+				soup_message_set_status(msg, SOUP_STATUS_BAD_REQUEST);
+				return;
+			}
+		}
+	}
+	ai_engine_t * engine = params->engines[engine_index];
+	assert(engine);
 	
 	const char * content_type = soup_message_headers_get_content_type(msg->request_headers, NULL);
 	printf("content-type: %s\n", content_type);
@@ -96,27 +127,29 @@ void on_request_ai_engine(SoupServer * server, SoupMessage * msg, const char * p
 	return;
 }
 
+
+static global_param_t g_params[1] = {{
+	.conf_file = "ai-server.json",
+	.port = 9090,
+	.plugins_dir = "plugins",
+}};
 int main(int argc, char **argv)
 {
-	int rc = 0;
-	SoupServer * server = soup_server_new(SOUP_SERVER_SERVER_HEADER, "ai-server", NULL);
-	ann_plugins_helpler_init(NULL, "plugins", server);
-	ai_engine_t * engine = ai_engine_init(NULL, "ai-engine::darknet", server);
-	json_object * jconfig = json_object_new_object();
-	json_object_object_add(jconfig, "conf_file", json_object_new_string("models/yolov3.cfg"));
-	json_object_object_add(jconfig, "weights_file", json_object_new_string("models/yolov3.weights"));
+	global_param_t * params = global_param_parse_args(NULL, argc, argv);
+	assert(params && params->count && params->engines);
 	
-	rc = engine->init(engine, jconfig);
-	assert(0 == rc);
+	SoupServer * server = soup_server_new(SOUP_SERVER_SERVER_HEADER, "ai-server", NULL);
+	assert(server);
+	params->server = server;
 	
 	static const char * path = "/ai";
 	soup_server_add_handler(server, path, 
-		(SoupServerCallback)on_request_ai_engine, engine, NULL);
+		(SoupServerCallback)on_request_ai_engine, params, NULL);
 	
 	gboolean ok = FALSE;
 	GError * gerr = NULL;
 
-	ok = soup_server_listen_all(server, 9090, SOUP_SERVER_LISTEN_IPV4_ONLY, &gerr);
+	ok = soup_server_listen_all(server, params->port, 0, &gerr);
 	if(!ok || gerr)
 	{
 		fprintf(stderr, "soup_server_listen_all() failed: %s\n", gerr?gerr->message:"unknown error");
@@ -140,7 +173,119 @@ int main(int argc, char **argv)
 	GMainLoop * loop = g_main_loop_new(NULL, 0);
 	g_main_loop_run(loop);
 	
-	ai_engine_cleanup(engine);
+	g_main_loop_unref(loop);
+	global_param_cleanup(params);
+	
 	return 0;
 }
 
+
+
+/******************************************************************************
+ * global_params
+ *****************************************************************************/
+#include <getopt.h>
+static void print_usuage(int argc, char ** argv)
+{
+	printf("Usuage: \n"
+		   "    %s [--conf=<conf_file.json>] [--port=<port>] [--plugins_dir=<plugins>] \n", argv[0]);
+	return;
+}
+global_param_t * global_param_parse_args(global_param_t * params, int argc, char ** argv)
+{
+	if(NULL == params) params = g_params;
+	static struct option options[] = {
+		{"conf", required_argument, 0, 'c' },	// config file
+		{"port", required_argument, 0, 'p' },	// AI server URL
+		{"plugins_dir", required_argument, 0, 'd' },	// camera(local/rtsp/http) or video file
+		{"help", no_argument, 0, 'h' },
+		{NULL, 0, 0, 0 },
+	};
+	
+	unsigned int port = 0;
+	const char * plugins_dir = NULL;
+	while(1)
+	{
+		int index = 0;
+		int c = getopt_long(argc, argv, "c:p:d:h", options, &index);
+		if(c < 0) break;
+		switch(c)
+		{
+		case 'c': params->conf_file = optarg; 	break;
+		case 'p': port = atoi(optarg); break;
+		case 'd': plugins_dir = optarg; 	break;
+		case 'h': 
+		default:
+			print_usuage(argc, argv); exit(0);
+		}
+	}
+	
+	// load config
+	assert(params->conf_file && params->conf_file[0]);
+	json_object * jconfig = json_object_from_file(params->conf_file);
+	assert(jconfig);
+	params->jconfig = jconfig;
+	
+	if(0 == port || port > 65535) {
+		port = json_get_value_default(jconfig, int, port, params->port);
+		params->port = port;
+	}
+	if(NULL == plugins_dir) {
+		plugins_dir = json_get_value_default(jconfig, string, plugins_dir, params->plugins_dir);
+		params->plugins_dir = plugins_dir;
+	}
+	
+	// init plugins
+	ann_plugins_helpler_init(NULL, plugins_dir, params);
+	
+	// init ai-engines
+	json_object * jai_engines = NULL;
+	json_bool ok = json_object_object_get_ex(jconfig, "engines", &jai_engines);
+	assert(ok && jai_engines);
+	
+	int count = json_object_array_length(jai_engines);
+	assert(count > 0);
+	
+	ai_engine_t ** engines = calloc(count, sizeof(*engines));
+	for(int i = 0; i < count; ++i)
+	{
+		json_object * jengine = json_object_array_get_idx(jai_engines, i);
+		assert(jengine);
+		
+		const char * plugin_name = json_get_value(jengine, string, plugin_name);
+		if(NULL == plugin_name) plugin_name = "ai-engine::darknet";
+		ai_engine_t * engine = ai_engine_init(NULL, plugin_name, params);
+		assert(engines);
+		
+		int rc = engine->init(engine, jengine);
+		assert(0 == rc);
+		
+		engines[i] = engine;
+	}
+	params->count = count;
+	params->engines = engines;
+
+	return params;
+}
+
+void global_param_cleanup(global_param_t * params)
+{
+	if(NULL == params) return;
+	if(params->count && params->engines)
+	{
+		ai_engine_t ** engines = params->engines;
+		for(ssize_t i = 0; i < params->count; ++i)
+		{
+			if(engines[i]) {
+				ai_engine_cleanup(engines[i]);
+				free(engines[i]);
+				engines[i] = NULL;
+			}
+		}
+		free(engines);
+		params->engines = NULL;
+		params->count = 0;
+	}
+	if(params->jconfig) json_object_put(params->jconfig);
+	params->jconfig = NULL;
+}
