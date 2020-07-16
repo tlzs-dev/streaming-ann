@@ -196,8 +196,8 @@ global_param_t * global_param_parse_args(global_param_t * params, int argc, char
 	if(NULL == params) params = g_params;
 	static struct option options[] = {
 		{"conf", required_argument, 0, 'c' },	// config file
-		{"port", required_argument, 0, 'p' },	// AI server URL
-		{"plugins_dir", required_argument, 0, 'd' },	// camera(local/rtsp/http) or video file
+		{"port", required_argument, 0, 'p' },	// AI server listening port
+		{"plugins_dir", required_argument, 0, 'd' },	// plugins path
 		{"help", no_argument, 0, 'h' },
 		{NULL, 0, 0, 0 },
 	};
