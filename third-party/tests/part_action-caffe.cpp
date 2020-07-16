@@ -446,12 +446,17 @@ int main(int argc, char **argv)
 		}
 	}
 	float result[NUM_CLASSES] = { 0 };
-	softmax(NUM_CLASSES, prediction, result);
-	std::vector<float> pred(prediction, prediction + NUM_CLASSES);
 	
+	// softmax(pred[] - max_pred)
+	int max_pred = calc_maximium(NUM_CLASSES, prediction);
+	vec_add_scalar(NUM_CLASSES, prediction, -max_pred);
+	softmax(NUM_CLASSES, prediction, result);
+	
+	std::vector<float> pred(prediction, prediction + NUM_CLASSES);
 	for(int i = 0; i < NUM_CLASSES; ++i) {
 		printf("class[%d]: confidence: %.3f\n", i, pred[i]);
 	}
+	// parse pred[]
 	
 	// cleanup
 	free(inputs[0]);
