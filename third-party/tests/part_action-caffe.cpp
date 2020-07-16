@@ -220,7 +220,7 @@ static void softmax(int n, const float X[/* n */], float Y[/* n */])
 	}
 	if(sum < epsilon) sum = epsilon;
 	
-	for(int i = 0; i < n; ++i) Y[i] /= epsilon;
+	for(int i = 0; i < n; ++i) Y[i] /= sum;
 	return;
 }
 
@@ -452,9 +452,8 @@ int main(int argc, char **argv)
 	vec_add_scalar(NUM_CLASSES, prediction, -max_pred);
 	softmax(NUM_CLASSES, prediction, result);
 	
-	std::vector<float> pred(prediction, prediction + NUM_CLASSES);
 	for(int i = 0; i < NUM_CLASSES; ++i) {
-		printf("class[%d]: confidence: %.3f\n", i, pred[i]);
+		printf("class[%d]: confidence: %.3f\n", i, result[i]);
 	}
 	// parse pred[]
 	
