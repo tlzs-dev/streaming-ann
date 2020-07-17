@@ -393,6 +393,7 @@ static ssize_t darknet_predict(darknet_context_t * darknet, const bgra_image_t f
 				
 				strncpy(result->class_names, label, sizeof(result->class_names));
 				result->confidence = confidence;
+				result->klass = klass;
 			}
 		}
 		

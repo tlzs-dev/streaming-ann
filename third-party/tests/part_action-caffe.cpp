@@ -346,7 +346,7 @@ int main(int argc, char **argv)
 	// pre-process images by transformers but not resize or crop
 	float * input = NULL;
 	int rc = bgra_to_float32_planes(NUM_INPUTS, frames, 
-		WIDTH, HEIGHT, NULL, (1.0f / 255.0f),
+		WIDTH, HEIGHT, NULL, 1.0f, // (255.0f / 255.0f),
 		&input);
 	assert((0 == rc) && input); 
 	
@@ -358,7 +358,7 @@ int main(int argc, char **argv)
 	inputs[0] = cropped;
 	
 	float * flipped = NULL;
-	rc = image_f32_flip_vertical(NUM_INPUTS, cropped, HEIGHT, &flipped);
+	rc = image_f32_flip_vertical(NUM_INPUTS, cropped, cropped_size, &flipped);
 	assert((0 == rc) && flipped);
 	inputs[1] = flipped;
 	
@@ -448,14 +448,19 @@ int main(int argc, char **argv)
 	float result[NUM_CLASSES] = { 0 };
 	
 	// softmax(pred[] - max_pred)
-	int max_pred = calc_maximium(NUM_CLASSES, prediction);
+	float max_pred = calc_maximium(NUM_CLASSES, prediction);
 	vec_add_scalar(NUM_CLASSES, prediction, -max_pred);
 	softmax(NUM_CLASSES, prediction, result);
 	
+	// class = argmax(prediction)
+	int klass = -1;
+	max_pred = -99999;
 	for(int i = 0; i < NUM_CLASSES; ++i) {
 		printf("class[%d]: confidence: %.3f\n", i, result[i]);
+		if(result[i] > max_pred) { max_pred = result[i]; klass = i; }
 	}
 	// parse pred[]
+	printf("class: %d\n", klass);
 	
 	// cleanup
 	free(inputs[0]);
