@@ -120,37 +120,43 @@ static const char * s_coco_names[80] = {
 
 typedef struct darknet_private
 {
+	darknet_context_t * darknet;
 	network * net;
+	json_object * jconfig;
+	
 	
 	ssize_t labels_count;
 	char ** labels;
+	
+	int relative;	// 1: return relative coordinates
+	float thresh; 	// confidence threshold, default = 0.5f;
+	float hier; 	// yolov2 only, default = 0.5f;
+	float nms; 		// Non-maximum Suppression (NMS), default = 0.45;
 }darknet_private_t;
 
-static ssize_t darknet_predict(darknet_context_t * darknet, const bgra_image_t frame[1], ai_detection_t ** p_results);
-
-darknet_context_t * darknet_context_new(const char * cfg_file, const char * weights_file, const char * labels_file, void * user_data)
+darknet_private_t * darknet_private_new(darknet_context_t * darknet, json_object * jconfig)
 {
-	darknet_context_t * darknet = calloc(1, sizeof(*darknet));
-	assert(darknet);
-	
-	darknet->user_data = user_data;
-	
 	darknet_private_t * priv = calloc(1, sizeof(*priv));
 	assert(priv);
+	priv->darknet = darknet;
 	darknet->priv = priv;
 	
+	const char * cfg_file = json_get_value_default(jconfig, string, conf_file, "yolov3.cfg");
+	const char * weights_file = json_get_value_default(jconfig, string, weights_file, "yolov3.weights");
+	
+#ifdef GPU
+	int gpu_index = json_get_value_default(jconfig, int, gpu, -1);
+	if(gpu_index >= 0) cuda_set_device(gpu_index);
+#endif
+
 	network * net = load_network((char *)cfg_file, (char *)weights_file, 0);
 	assert(net);
-	priv->net = net;
-	
-	darknet->predict = darknet_predict;
-	set_batch_network(net, 1);
-	
 	assert(net->n > 0);
 	layer l = net->layers[net->n - 1];
 	int num_classes = l.classes;
 	assert(num_classes > 0 && num_classes < 10000);
 	
+	const char * labels_file = json_get_value(jconfig, string, labels_file);
 	priv->labels_count = 80;
 	priv->labels = (char **)s_coco_names;
 		
@@ -173,6 +179,8 @@ darknet_context_t * darknet_context_new(const char * cfg_file, const char * weig
 			
 			int cb = strlen(line);
 			if(cb == 0) continue;
+			
+			assert(count < num_classes);
 			labels[count++] = strdup(line);
 		}
 		fclose(fp);
@@ -180,8 +188,33 @@ darknet_context_t * darknet_context_new(const char * cfg_file, const char * weig
 		priv->labels_count = count;
 		priv->labels = labels;
 	}
-	
 	assert(priv->labels_count == num_classes);
+	set_batch_network(net, 1);
+	
+	priv->relative = json_get_value_default(jconfig, int, relative, 1);
+	
+	priv->thresh = json_get_value_default(jconfig, double, threshod, 0.5);
+	priv->hier = json_get_value_default(jconfig, double, hier, 0.5);
+	priv->nms = json_get_value_default(jconfig, double, nms, 0.45);
+	
+	priv->net = net;
+	return priv;
+}
+
+static ssize_t darknet_predict(darknet_context_t * darknet, const bgra_image_t frame[1], ai_detection_t ** p_results);
+darknet_context_t * darknet_context_new(json_object * jconfig, void * user_data)
+{
+	assert(jconfig && user_data);
+	
+	darknet_context_t * darknet = calloc(1, sizeof(*darknet));
+	assert(darknet);
+	
+	darknet->user_data = user_data;
+	darknet->predict = darknet_predict;
+	
+	darknet_private_t * priv = darknet_private_new(darknet, jconfig);
+	assert(priv && darknet->priv == priv);
+	
 	return darknet;
 }
 
@@ -193,6 +226,7 @@ void darknet_context_free(darknet_context_t * darknet)
 	{
 		network * net = priv->net;
 		if(net) free_network(net);
+		priv->net = NULL;
 		
 		if(priv->labels && priv->labels != (char **)s_coco_names)
 		{
@@ -203,44 +237,46 @@ void darknet_context_free(darknet_context_t * darknet)
 			priv->labels_count = 0;
 		}
 		
+		free(priv);
 		darknet->priv = NULL;
-		
 	}
 	return;
 }
 
 
-static inline int bgra_image_to_f32(const bgra_image_t * restrict bgra, float * restrict dst)
+static int bgra_image_to_f32(const bgra_image_t * restrict bgra, float * restrict dst)
 {
+	static const float scalar = 1.0f / 255.0f;
 	assert(dst);
-	
-	int size = bgra->width * bgra->height;
+
+	ssize_t size = bgra->width * bgra->height;
 	float * r_plane = dst;
 	float * g_plane = r_plane + size;
 	float * b_plane = g_plane + size;
 	
-	for(int pos = 0; pos < size; ++pos)
+	// from bgr (NHWC) to float32 (NCHW)
+	const unsigned char * bgra_data = bgra->data;
+	for(int pos = 0; pos < size; ++pos, bgra_data += 4)
 	{
-		unsigned char * pixel = &bgra->data[pos * 4];
-		r_plane[pos] = ((float) pixel[2]) / 255.0;
-		g_plane[pos] = ((float) pixel[1]) / 255.0;
-		b_plane[pos] = ((float) pixel[0]) / 255.0;
+		r_plane[pos] = ((float) bgra_data[2]) * scalar;
+		g_plane[pos] = ((float) bgra_data[1]) * scalar;
+		b_plane[pos] = ((float) bgra_data[0]) * scalar;
 	}
 	return 0;
 }
 
-static int bgra_image_resize(bgra_image_t * dst, int width, int height, const bgra_image_t * src)
+static bgra_image_t * bgra_image_resize(bgra_image_t * dst, int width, int height, const bgra_image_t * src)
 {
-	assert(dst && src && width > 1 && height > 1 && src->width > 1 && src->height > 1 && src->data);
+	assert(src && width > 1 && height > 1 && src->width > 1 && src->height > 1 && src->data);
 	cairo_surface_t * origin = cairo_image_surface_create_for_data((unsigned char *)src->data,
-		CAIRO_FORMAT_RGB24,
+		CAIRO_FORMAT_ARGB32,
 		src->width, src->height, src->width * 4);
 	assert(origin);
 	
 	double sx = (double)width / (double)src->width;
 	double sy = (double)height / (double)src->height;
 	
-	cairo_surface_t * resized = cairo_image_surface_create(CAIRO_FORMAT_RGB24, width, height);
+	cairo_surface_t * resized = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, width, height);
 	assert(resized);
 	
 	cairo_t * cr = cairo_create(resized);
@@ -260,7 +296,7 @@ static int bgra_image_resize(bgra_image_t * dst, int width, int height, const bg
 	
 	cairo_surface_destroy(origin);
 	cairo_surface_destroy(resized);
-	return 0;
+	return dst;
 }
 
 
@@ -273,45 +309,31 @@ static ssize_t darknet_predict(darknet_context_t * darknet, const bgra_image_t f
 	int height = net->h;
 	debug_printf("network size: %d x %d\n", width, height);
 	debug_printf("resize: %d x %d   --> %d x %d\n", frame->width, frame->height, width, height);
-	bgra_image_t resized[1];
-	memset(resized, 0, sizeof(resized));
-	
-	int rc = bgra_image_resize(resized, width, height, frame);
-	assert(0 == rc);
-	
-	assert(resized->width == width && resized->height == height && resized->data);
+	bgra_image_t * resized = bgra_image_resize(NULL, width, height, frame);
+	assert(resized && (resized->width == width) && (resized->height == height) && resized->data);
 	
 	float * input = malloc(width * height * 3 * sizeof(float));
+	assert(input);
+	
 	bgra_image_to_f32(resized, input);
+	bgra_image_clear(resized); free(resized);
 	
 	network_predict(net, input);
-	bgra_image_clear(resized);
-	if(input) free(input);
+	free(input);
 	
 	int count = 0;
-	float thresh = 0.5f;
-	float hier = 0.5f;
-	float nms = 0.45;
+	float thresh = priv->thresh;
+	float hier = priv->hier;
+	float nms = priv->nms;
+	int relative = priv->relative;
 	
 	layer l = net->layers[net->n - 1];
-
-	int relative = 0;		// relative coordinations
-	double scale_x = 1;
-	double scale_y = 1;
-	if(!relative)
-	{
-		assert(frame->width > 0 && frame->height > 0);
-		scale_x = 1.0 / (double)width;
-		scale_y = 1.0 / (double)height;
-	}
-		
 	detection * dets = get_network_boxes(net, width, height, thresh, hier, NULL, relative, &count);
 	
 	ai_detection_t * results = calloc(count, sizeof(*results));
 	assert(results);
 	
 	int dets_count = 0;
-	
 	if(dets && count > 0)
 	{
 		int num_classes = l.classes;
@@ -356,10 +378,10 @@ static ssize_t darknet_predict(darknet_context_t * darknet, const bgra_image_t f
 				
 				// box: (center_pos + size)	-->  bounding box
 				box b = dets[i].bbox;
-				result->x = (b.x - b.w / 2.0) * scale_x;
-				result->y = (b.y - b.h / 2.0) * scale_y;
-				result->cx = b.w * scale_x;
-				result->cy = b.h * scale_y;
+				result->x = (b.x - b.w / 2.0);
+				result->y = (b.y - b.h / 2.0);
+				result->cx = b.w;
+				result->cy = b.h;
 				
 				debug_printf("result: bbox:{%.3f, %.3f, %.3f, %.3f}\n", 
 					result->x, result->y, result->cx, result->cy);

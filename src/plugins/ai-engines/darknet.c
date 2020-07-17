@@ -151,17 +151,18 @@ static int ai_plugin_darknet_set_property(struct ai_engine * engine, const char 
 
 int ann_plugin_init(ai_engine_t * engine, json_object * jconfig)
 {
-	const char * cfg_file = "conf/yolov3.cfg";
-	const char * weights_file = "models/yolov3.weights";
-	const char * labels_file = "conf/coco.names";
+	static const char * cfg_file = "conf/yolov3.cfg";
+	static const char * weights_file = "models/yolov3.weights";
+	//~ static const char * labels_file = "conf/coco.names";
 	
-	if(jconfig)
-	{
-		cfg_file = json_get_value(jconfig, string, conf_file);
-		weights_file = json_get_value(jconfig, string, weights_file);
-		labels_file = json_get_value(jconfig, string, labels_file);
+	if(NULL == jconfig) {
+		jconfig = json_object_new_object();
+		json_object_object_add(jconfig, "conf_file", json_object_new_string(cfg_file));
+		json_object_object_add(jconfig, "weights_file", json_object_new_string(weights_file));
 	}
-	darknet_context_t * darknet = darknet_context_new(cfg_file, weights_file, labels_file, engine);
+	assert(jconfig);
+	
+	darknet_context_t * darknet = darknet_context_new(jconfig, engine);
 	assert(darknet);
 
 	engine->priv = darknet;
@@ -174,10 +175,5 @@ int ann_plugin_init(ai_engine_t * engine, json_object * jconfig)
 	engine->set_property = ai_plugin_darknet_set_property;
 	return 0;
 }
-
-
-
-
-
 
 #undef AI_PLUGIN_TYPE_STRING
