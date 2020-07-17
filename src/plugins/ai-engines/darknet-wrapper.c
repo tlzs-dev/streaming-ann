@@ -141,8 +141,12 @@ darknet_private_t * darknet_private_new(darknet_context_t * darknet, json_object
 	priv->darknet = darknet;
 	darknet->priv = priv;
 	
-	const char * cfg_file = json_get_value_default(jconfig, string, conf_file, "yolov3.cfg");
-	const char * weights_file = json_get_value_default(jconfig, string, weights_file, "yolov3.weights");
+	priv->jconfig = json_object_get(jconfig); // add ref
+	
+	debug_printf("jconfig: %s\n", json_object_to_json_string_ext(jconfig, JSON_C_TO_STRING_PRETTY));
+	
+	const char * cfg_file = json_get_value_default(jconfig, string, conf_file, "models/yolov3.cfg");
+	const char * weights_file = json_get_value_default(jconfig, string, weights_file, "models/yolov3.weights");
 	
 #ifdef GPU
 	int gpu_index = json_get_value_default(jconfig, int, gpu, -1);
@@ -237,6 +241,7 @@ void darknet_context_free(darknet_context_t * darknet)
 			priv->labels_count = 0;
 		}
 		
+		if(priv->jconfig) json_object_put(priv->jconfig);
 		free(priv);
 		darknet->priv = NULL;
 	}

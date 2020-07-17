@@ -107,9 +107,9 @@ void on_request_ai_engine(SoupServer * server, SoupMessage * msg, const char * p
 	global_lock();
 	rc = engine->predict(engine, frame, &jresult);
 	global_unlock();
+	input_frame_clear(frame);
 	
 	printf("rc=%d, jresult=%p\n", rc, jresult);
-	
 	if(rc || NULL == jresult)
 	{
 		if(jresult) json_object_put(jresult);

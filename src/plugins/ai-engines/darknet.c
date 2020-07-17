@@ -151,7 +151,7 @@ static int ai_plugin_darknet_set_property(struct ai_engine * engine, const char 
 
 int ann_plugin_init(ai_engine_t * engine, json_object * jconfig)
 {
-	static const char * cfg_file = "conf/yolov3.cfg";
+	static const char * cfg_file = "models/yolov3.cfg";
 	static const char * weights_file = "models/yolov3.weights";
 	//~ static const char * labels_file = "conf/coco.names";
 	

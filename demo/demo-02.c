@@ -586,7 +586,7 @@ static void draw_frame(da_panel_t * panel, const input_frame_t * frame, json_obj
 			int count = json_object_array_length(jdetections);
 			cairo_set_line_width(cr, 2);
 			cairo_set_source_rgb(cr, 1, 1, 0);
-			cairo_select_font_face(cr, "Droid Sans", CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_NORMAL);
+			cairo_select_font_face(cr, "IPA明朝", CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_NORMAL);
 			cairo_set_font_size(cr, 12);
 			for(int i = 0; i < count; ++i)
 			{
