@@ -78,7 +78,7 @@ public:
 		plugin(_plugin), net(_cfg_file, caffe::TEST), means_file(NULL),
 		has_means_blob(0),
 		has_means_scalar(0),
-		value_scale(255.0f),
+		value_scale(1.0f),
 		has_output_names(0)
 	{
 		cfg_file = _cfg_file;
@@ -89,6 +89,8 @@ public:
 	
 	int load_config(json_object * _jconfig) {
 		jconfig = json_object_get(_jconfig);
+		
+		debug_printf("jconfig: %s\n", json_object_to_json_string_ext(jconfig, JSON_C_TO_STRING_PRETTY));
 		
 		json_bool ok = FALSE;
 		if(NULL == weights_file) {
@@ -106,6 +108,7 @@ public:
 				means_file = json_object_get_string(jobj);
 			}
 		}
+		assert(weights_file);
 		
 		if(weights_file) net.CopyTrainedLayersFrom(weights_file);
 		if(means_file) {
@@ -142,6 +145,11 @@ public:
 				output_names.push_back((const char *)json_object_get_string(json_object_array_get_idx(joutputs, i)));
 			}
 		}
+		
+		json_object * jvalue_scale = NULL;
+		ok = json_object_object_get_ex(jconfig, "value_scale", &jvalue_scale);
+		if(ok && jvalue_scale) value_scale = json_object_get_double(jvalue_scale);
+		
 		return 0;
 	}
 };
@@ -157,6 +165,8 @@ caffe_model_plugin_t * caffe_model_plugin_new(json_object * jconfig, void * user
 	caffe::Caffe::set_mode(caffe::Caffe::GPU);
 #endif
 
+	gflags::SetVersionString(AS_STRING(CAFFE_VERSION));
+	
 	static int argc = 1;
 	static const char * args[] = { "caffe-model", NULL };
 	char ** argv = (char **)args;
@@ -296,6 +306,14 @@ static inline void caffe_tensor_set_output(caffe_tensor_t * result, const char *
 	result->data = (float *)malloc(size * sizeof(*result->data));
 	assert(result->data);
 	memcpy(result->data, out->cpu_data(), size * sizeof(*result->data));
+	
+#ifdef _DEBUG
+	fprintf(stderr, "%s()...\n", __FUNCTION__);
+	for(int i = 0; i < size; ++i) {
+		if((i % 16) == 0) printf("\n");
+		fprintf(stderr, "%.6f, ", result->data[i]);
+	}
+#endif
 	return;
 }
 

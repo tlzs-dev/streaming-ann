@@ -124,6 +124,7 @@ static int ai_plugin_caffe_predict(struct ai_engine * engine, const input_frame_
 		if(rc)
 		{
 			bgra_image_clear(bgra);
+			free(bgra);
 			bgra = NULL;
 		}
 	}
@@ -163,15 +164,17 @@ static int ai_plugin_caffe_predict(struct ai_engine * engine, const input_frame_
 				
 				json_object * jdata = json_object_new_array();
 				json_object_object_add(joutput, "data", jdata); 
-				for(size_t ii = 0; ii < size; ++ii) json_object_array_add(jdata, json_object_new_double(result->data[i]));
-				
-				caffe_tensor_cleanup(result);
+				for(size_t ii = 0; ii < size; ++ii) json_object_array_add(jdata, json_object_new_double(result->data[ii]));
 			}
 			*p_jresults = jresults;
 			rc = 0;
 		}
 
-		if(results) free(results);
+		if(results) {
+			for(int i = 0; i < count; ++i) caffe_tensor_cleanup(&results[i]);
+			free(results);
+		}
+		
 		if(bgra != frame->bgra)
 		{
 			bgra_image_clear(bgra);

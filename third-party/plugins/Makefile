@@ -1,8 +1,8 @@
-TARGET=$(PROJECT_DIR)/plugins/libaiplugin-caffe.so 
 PROJECT_DIR := ../..
+TARGET=$(PROJECT_DIR)/plugins/libaiplugin-caffe.so 
 
 DEBUG ?= 1
-OPTIMIZE ?= 1
+OPTIMIZE ?= -O2
 USE_GPU ?= 0
 
 CC=gcc -std=gnu99 -D_GNU_SOURCE

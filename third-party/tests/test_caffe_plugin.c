@@ -34,7 +34,9 @@
 #include "ann-plugin.h"
 #include "ai-engine.h"
 
+#include <cairo/cairo.h>
 #include <json-c/json.h>
+#include "utils.h"
 
 static const char * s_model_cfg = "models/ResNet-101-deploy.prototxt";
 static const char * s_weights_file = "models/ResNet-101-model.caffemodel";
@@ -48,7 +50,7 @@ int main(int argc, char **argv)
 	
 	json_object * jconfig = json_object_new_object();
 	json_object_object_add(jconfig, "conf_file", json_object_new_string(s_model_cfg));
-	json_object_object_add(jconfig, "weigths_file", json_object_new_string(s_weights_file));
+	json_object_object_add(jconfig, "weights_file", json_object_new_string(s_weights_file));
 	json_object_object_add(jconfig, "means_file", json_object_new_string(s_mean_file));
 	
 	int rc = engine->init(engine, jconfig);
@@ -56,11 +58,18 @@ int main(int argc, char **argv)
 	
 	input_frame_t * frame = input_frame_new();
 	frame->type = input_frame_type_bgra;
-	bgra_image_init(frame->bgra, 640, 480, NULL);
 	
+	unsigned char * png_data = NULL;
+	ssize_t cb_data = load_binary_data("1.png", &png_data);
+	
+	input_frame_set_png(frame, png_data, cb_data, NULL, 0);
+	
+
+
 	json_object * jresults = NULL;
 	rc = engine->predict(engine, frame, &jresults);
 	assert(0 == rc && jresults);
+	
 	
 	printf("results: %s\n", json_object_to_json_string_ext(jresults, JSON_C_TO_STRING_PRETTY));
 	json_object_put(jresults);
