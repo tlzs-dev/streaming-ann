@@ -3,5 +3,5 @@ window {
 }
 
 GtkDrawingArea {
-	font: "16px IPAGothic";
+	font: 16px Sans Mono;
 }

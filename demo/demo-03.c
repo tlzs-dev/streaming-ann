@@ -517,6 +517,30 @@ static inline int check_region_state(ai_context_t * ctx, double x, double y, dou
 	cairo_surface_t * masks = ctx->masks;
 	assert(masks && regions);
 	
+	rect_d det = (rect_d){x, y, cx, cy};
+	
+	// set region->state to -1 if the sight was blocked
+#define IOU_THRESHOLD 0.4
+	double det_area = det.cx * det.cy;
+	for(int i = 0; i < ctx->regions_count; ++i)
+	{
+		region_data_t * region = &regions[i];
+		rect_d intersect = rect_d_intesect(region->bbox, det);
+		
+		double intersect_area = intersect.cx * intersect.cy;
+		double current_area = region->bbox.cx * region->bbox.cy;
+		
+		assert(intersect_area >= 0 && (current_area + det_area) > 0);
+		if ((y + cy / 2) >= (region->bbox.y + region->bbox.cy) 
+		//	&&  (intersect_area / (current_area + det_area)) > IOU_THRESHOLD
+		) {
+			region->state = -1;	
+		}
+	
+	}
+#undef IOU_THRESHOLD
+
+	
 	unsigned char * masks_data = cairo_image_surface_get_data(masks);
 	int width = cairo_image_surface_get_width(masks);
 	int height = cairo_image_surface_get_height(masks);
@@ -535,17 +559,7 @@ static inline int check_region_state(ai_context_t * ctx, double x, double y, dou
 	current->state = 1;
 	
 	
-	//~ rect_d det = (rect_d){x, y, cx, cy};
-	//~ rect_d intersect = rect_d_intesect(current->bbox, det);
 	
-//~ #define IOU_THRESHOLD 0.8
-	//~ double intersect_area = intersect.cx * intersect.cy;
-	//~ double current_area = current->bbox.cx * current->bbox.cy;
-	//~ double det_area = det.cx * det.cy;
-	
-	//~ assert(intersect_area >= 0 && (current_area + det_area) > 0);
-	//~ current->state = ((intersect_area / (current_area + det_area)) > IOU_THRESHOLD);
-//~ #undef IOU_THRESHOLD
 	return 0;
 }
 
@@ -753,6 +767,37 @@ static int load_config(ai_context_t * ctx, const char * conf_file)
 }
 
 
+static inline gboolean draw_masks(ai_context_t * ctx, cairo_t * cr, double width, double height)
+{
+	if(NULL == ctx->regions || ctx->regions_count <= 0) return FALSE;
+	
+	//debug_printf("masks: %d x %d\n", ctx->image_width, ctx->image_height);
+	for(int i = 0; i < ctx->regions_count; ++i)
+	{
+		region_data_t * region = &ctx->regions[i];
+		if(region->count <= 0) continue;
+		
+		double r = 1, g = 0, b = 0;
+		if(region->state < 0) { r = 0.5; g = 0.5; b = 0.5; }
+		else if(region->state == 0) { r = 0; g = 1; b = 0; }
+		
+		double dashes[1] = { 1 };
+		cairo_set_line_width(cr, 2);
+		cairo_set_dash(cr, dashes, 1, 0);
+		cairo_set_source_rgba(cr, r, g, b, 0.3);
+		cairo_new_path(cr);
+		cairo_move_to(cr, region->points[0].x * width, region->points[0].y * height);
+		for(int ii = 1; ii < region->count; ++ii) {
+			cairo_line_to(cr, region->points[ii].x * width, region->points[ii].y * height);
+		}
+		cairo_close_path(cr);
+		cairo_fill_preserve(cr);
+		cairo_set_source_rgba(cr, r, g, b, 1.0);
+		cairo_stroke(cr);
+	}
+	return FALSE;
+}
+
 static gboolean draw_main_panel(struct da_panel * panel, cairo_t * cr, void * user_data)
 {
 	shell_context_t * shell = user_data;
@@ -778,33 +823,7 @@ static gboolean draw_main_panel(struct da_panel * panel, cairo_t * cr, void * us
 	cairo_paint(cr);
 	cairo_restore(cr);
 	
-	if(NULL == ctx->regions || ctx->regions_count <= 0) return FALSE;
-	
-	//debug_printf("masks: %d x %d\n", ctx->image_width, ctx->image_height);
-	for(int i = 0; i < ctx->regions_count; ++i)
-	{
-		region_data_t * region = &ctx->regions[i];
-		if(region->count <= 0) continue;
-		
-		double r = 1, g = 0, b = 0;
-		if(region->state < 0) { r = 0.5; g = 0.5; b = 0.5; }
-		else if(region->state == 0) { r = 0; g = 1; b = 0; }
-		
-		double dashes[1] = { 1 };
-		cairo_set_line_width(cr, 2);
-		cairo_set_dash(cr, dashes, 1, 0);
-		cairo_set_source_rgba(cr, r, g, b, 0.3);
-		cairo_new_path(cr);
-		cairo_move_to(cr, region->points[0].x * panel->width, region->points[0].y * panel->height);
-		for(int ii = 1; ii < region->count; ++ii) {
-			cairo_line_to(cr, region->points[ii].x * panel->width, region->points[ii].y * panel->height);
-		}
-		cairo_close_path(cr);
-		cairo_fill_preserve(cr);
-		cairo_set_source_rgba(cr, r, g, b, 1.0);
-		cairo_stroke(cr);
-	}
-	
+	draw_masks(ctx, cr, panel->width, panel->height);
 	return FALSE;
 }
 
@@ -837,13 +856,14 @@ static gboolean draw_masks_panel(struct da_panel * panel, cairo_t * cr, void * u
 	cairo_paint(cr);
 	cairo_restore(cr);
 	
-	
 	cairo_move_to(cr, 20, 30);
 	cairo_set_source_rgb(cr, 0, 0, 1);
 	cairo_set_font_size(cr, 18);
 	cairo_set_line_width(cr, 3);
 	cairo_select_font_face(cr, "DejaVu Sans Mono", CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_BOLD);
 	cairo_show_text(cr, "masks view");
+	
+	draw_masks(ctx, cr, panel->width, panel->height);
 	return FALSE;
 	
 }
