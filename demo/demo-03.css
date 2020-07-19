@@ -1,0 +1,7 @@
+window {
+  background-color: #898989;
+}
+
+GtkDrawingArea {
+	font: "16px IPAGothic";
+}

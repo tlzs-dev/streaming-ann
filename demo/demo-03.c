@@ -1,5 +1,5 @@
 /*
- * demo-01.c
+ * demo-03.c
  * 
  * Copyright 2020 Che Hongwei <htc.chehw@gmail.com>
  * 
@@ -31,6 +31,8 @@
 #include <string.h>
 #include <assert.h>
 
+#include <math.h>
+
 #include <gst/gst.h>
 #include <gtk/gtk.h>
 #include <pthread.h>
@@ -52,13 +54,34 @@
 #define APP_TITLE "demo-03"
 
 struct ai_context;
-#define MAX_AREAS (256)
+
+#define MAX_REGION_POINTS (16)
+#define MAX_REGIONS (256)
+
+typedef struct rect_d
+{
+	double x, y, cx, cy;
+}rect_d;
+
+typedef struct point_d
+{
+	double x, y;
+}point_d;
+
+typedef struct region_data
+{
+	ssize_t count;
+	point_d points[MAX_REGION_POINTS];
+	int state;	// -1: unknown, 0: empty, 1: be occupied.
+	rect_d bbox;
+}region_data_t;
+
 typedef struct shell_context
 {
 	void * user_data;
 	GtkWidget * window;
 	GtkWidget * header_bar;
-	da_panel_t * panels[1];
+	da_panel_t * panels[2];
 	
 	guint timer_id;
 	int quit;
@@ -71,16 +94,12 @@ typedef struct shell_context
 	int is_busy;
 	int is_dirty;
 	
-	char * url;
 	CURL * curl;
 	json_tokener * jtok;
 	json_object * jresult;
 	enum json_tokener_error jerr;
 	
-	ssize_t count;
-	struct {
-		double x, y, cx, cy;
-	} regions[MAX_AREAS];
+	
 }shell_context_t;
 
 shell_context_t * shell_context_init(int argc, char ** argv, void * user_data);
@@ -98,10 +117,25 @@ typedef struct ai_context
 {
 	io_input_t * input;
 	shell_context_t * shell;
-	char * server_url;
-	char * video_src;
 	
-	json_object * j_regions;
+	const char * app_title;
+	const char * conf_file;
+	const char * server_url;
+	const char * video_src;
+	
+	const char * css_file;
+	
+	json_object * jconfig;
+	json_object * jinput;
+	json_object * jai_engine;
+	
+	// settings
+	ssize_t regions_count;
+	region_data_t * regions;
+	
+	int image_width;
+	int image_height;
+	cairo_surface_t * masks;
 	
 }ai_context_t;
 
@@ -121,8 +155,10 @@ static int on_new_frame(io_input_t * input, const input_frame_t * frame)
 }
 
 static ai_context_t g_ai_context[1] = {{
-	.server_url = "http://127.0.0.1:9090/ai",
-	.video_src = "/dev/video2",
+	.app_title = APP_TITLE,
+	.conf_file = "demo-03.json",
+	//~ .server_url = "http://127.0.0.1:9090/ai",
+	//~ .video_src = "/dev/video1",
 }};
 #include <getopt.h>
 
@@ -131,52 +167,61 @@ static void print_usuage(int argc, char ** argv)
 	printf("Usuage: %s [--server_url=<url>] [--video_src=<rtsp://camera_ip>] \n", argv[0]);
 	return;
 }
+
+static int load_config(ai_context_t * ctx, const char * conf_file);
 int parse_args(int argc, char ** argv, ai_context_t * ctx)
 {
 	static struct option options[] = {
+		{"conf_file", required_argument, 0, 'c' },	// config_file
 		{"server_url", required_argument, 0, 's' },	// AI server URL
 		{"video_src", required_argument, 0, 'v' },	// camera(local/rtsp/http) or video file
 		{"help", no_argument, 0, 'h' },
 		{NULL, 0, 0, 0 },
 	};
 	
+	const char * conf_file = ctx->conf_file;
+	const char * server_url = NULL;
+	const char * video_src = NULL;
+	
 	while(1)
 	{
 		int index = 0;
-		int c = getopt_long(argc, argv, "s:v:h", options, &index);
+		int c = getopt_long(argc, argv, "c:s:v:h", options, &index);
 		if(c < 0) break;
 		switch(c)
 		{
-		case 's': ctx->server_url = optarg; break;
-		case 'v': ctx->video_src = optarg; break;
+		case 'c': conf_file = optarg; break;
+		case 's': server_url = optarg; break;
+		case 'v': video_src = optarg; break;
 		case 'h': 
 		default:
 			print_usuage(argc, argv); exit(0);
 		}
 	}
-	return 0;
+	
+	ctx->conf_file = conf_file;
+	ctx->server_url = server_url;
+	ctx->video_src = video_src;
+	
+	assert(ctx->conf_file && ctx->conf_file[0]);
+	
+	int rc = load_config(ctx, conf_file);
+	return rc;
 }
 
 int main(int argc, char **argv)
 {
 	ai_context_t * ctx = g_ai_context;
 	int rc = parse_args(argc, argv, ctx);
-	assert(0 == rc);
+	assert(0 == rc && ctx->jinput && ctx->server_url && ctx->server_url[0]);
 	
 	shell_context_t * shell = shell_context_init(argc, argv, ctx);
-	shell->url = ctx->server_url;
-	
-	const char * video_src = ctx->video_src;
 	ann_plugins_helpler_init(NULL, "plugins", NULL);
+	
 	io_input_t * input = io_input_init(NULL, IO_PLUGIN_DEFAULT, shell);
 	ctx->input = input;
 	
-	json_object * jconfig = json_object_new_object();
-	assert(jconfig);
-	
-	json_object_object_add(jconfig, "name", json_object_new_string("input1"));
-	json_object_object_add(jconfig, "uri", json_object_new_string(video_src));
-	input->init(input, jconfig);
+	input->init(input, ctx->jinput);
 	input->on_new_frame = on_new_frame;
 	input->run(input);
 	
@@ -239,6 +284,9 @@ static void auto_free_ptr(void * ptr)
 
 int ai_request(shell_context_t * shell, const input_frame_t * frame)
 {
+	ai_context_t * ctx = shell->user_data;
+	assert(ctx);
+	
 	CURL * curl = shell->curl;
 	assert(curl);
 	
@@ -246,7 +294,7 @@ int ai_request(shell_context_t * shell, const input_frame_t * frame)
 	long cb_jpeg = bgra_image_to_jpeg_stream((bgra_image_t *)frame->bgra, &jpeg_data, 95);
 	assert(cb_jpeg > 0 && jpeg_data);
 	curl_easy_reset(curl);
-	curl_easy_setopt(curl, CURLOPT_URL, shell->url);
+	curl_easy_setopt(curl, CURLOPT_URL, ctx->server_url);
 	
 	curl_easy_setopt(curl, CURLOPT_POST, 1);
 	curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, cb_jpeg);
@@ -366,14 +414,36 @@ void shell_context_cleanup(shell_context_t * shell)
 	return;
 }
 
+
+static gboolean draw_main_panel(struct da_panel * panel, cairo_t * cr, void * user_data);
+static gboolean draw_masks_panel(struct da_panel * panel, cairo_t * cr, void * user_data);
 static void init_windows(shell_context_t * shell)
 {
+	ai_context_t * ctx = shell->user_data;
+	assert(ctx);
+	
 	GtkWidget * window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
 	GtkWidget * header_bar = gtk_header_bar_new();
-	GtkWidget * vbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+	GtkWidget * grid = gtk_grid_new();
 	
 	gtk_window_set_titlebar(GTK_WINDOW(window), header_bar);
-	gtk_container_add(GTK_CONTAINER(window), vbox);
+	gtk_container_add(GTK_CONTAINER(window), grid);
+	
+	if(ctx->css_file) {
+		GError * gerr = NULL;
+		GtkCssProvider * css = gtk_css_provider_new();
+		gboolean ok = gtk_css_provider_load_from_path(css, ctx->css_file, &gerr);
+		if(!ok || gerr) {
+			fprintf(stderr, "gtk_css_provider_load_from_path(%s) failed: %s\n",
+				ctx->css_file, 
+				gerr?gerr->message:"unknown error");
+			if(gerr) g_error_free(gerr);
+		}else
+		{
+			GdkScreen* screen = gtk_window_get_screen(GTK_WINDOW(window));
+			gtk_style_context_add_provider_for_screen(screen, GTK_STYLE_PROVIDER(css), GTK_STYLE_PROVIDER_PRIORITY_USER);
+		}
+	}
 	
 	gtk_header_bar_set_show_close_button(GTK_HEADER_BAR(header_bar), TRUE);
 	gtk_header_bar_set_title(GTK_HEADER_BAR(header_bar), "DEMO-01");
@@ -381,11 +451,22 @@ static void init_windows(shell_context_t * shell)
 	struct da_panel * panel = da_panel_init(NULL, 640, 480, shell);
 	assert(panel);
 	shell->panels[0] = panel;
-	gtk_box_pack_start(GTK_BOX(vbox), panel->frame, TRUE, TRUE, 0);
+	gtk_grid_attach(GTK_GRID(grid), panel->frame, 0, 0, 1, 1);
 	gtk_widget_set_size_request(panel->da, 640, 480);
+	panel->on_draw = draw_main_panel;
+	
+	
+	panel = da_panel_init(NULL, 640, 480, shell);
+	assert(panel);
+	shell->panels[1] = panel;
+	gtk_grid_attach(GTK_GRID(grid), panel->frame, 0, 1, 1, 1);
+	gtk_widget_set_size_request(panel->da, 640, 160);
+	panel->on_draw = draw_masks_panel;
 	
 	g_signal_connect_swapped(window, "destroy", G_CALLBACK(shell_stop), shell);
 	gtk_widget_show_all(window);
+	
+	
 	return;
 }
 
@@ -417,8 +498,63 @@ static gboolean on_idle(shell_context_t * shell)
 	return G_SOURCE_REMOVE;
 }
 
+static inline rect_d rect_d_intesect(const rect_d r1, const rect_d r2)
+{
+	if(r2.x > (r1.x + r1.cx) || (r2.x + r2.cx) < r1.x) return (rect_d){0,0,0,0};
+	if(r2.y > (r1.y + r1.cy) || (r2.y + r2.cy) < r1.y) return (rect_d){0,0,0,0};
+	
+	double x1 = (r1.x > r2.x)?r1.x:r2.x;
+	double y1 = (r1.y > r2.y)?r1.y:r2.y;
+	double x2 = ((r1.x + r1.cx) < (r2.x + r2.cx))?(r1.x + r1.cx):(r2.x + r2.cx);
+	double y2 = ((r1.y + r1.cy) < (r2.y + r2.cy))?(r1.y + r1.cy):(r2.y + r2.cy);
+	
+	return (rect_d){x1, y1,(x2 - x1),(y2 - y1)};
+}
+
+static inline int check_region_state(ai_context_t * ctx, double x, double y, double cx, double cy)
+{
+	region_data_t * regions = ctx->regions;
+	cairo_surface_t * masks = ctx->masks;
+	assert(masks && regions);
+	
+	unsigned char * masks_data = cairo_image_surface_get_data(masks);
+	int width = cairo_image_surface_get_width(masks);
+	int height = cairo_image_surface_get_height(masks);
+	
+	int center_x = (int)((x + cx / 2) * width);
+	int bottom_y = (int)((y + cy) * height);
+	
+	if(center_x < 0 || center_x >= width) return -1;
+	if(bottom_y < 0 || bottom_y >= height) return -1;
+	
+	unsigned char color_index = masks_data[(bottom_y * width + center_x) * 4];
+	if(color_index < 0 || color_index > ctx->regions_count) return -1;
+	--color_index;
+	
+	region_data_t * current = &regions[color_index];
+	current->state = 1;
+	
+	
+	//~ rect_d det = (rect_d){x, y, cx, cy};
+	//~ rect_d intersect = rect_d_intesect(current->bbox, det);
+	
+//~ #define IOU_THRESHOLD 0.8
+	//~ double intersect_area = intersect.cx * intersect.cy;
+	//~ double current_area = current->bbox.cx * current->bbox.cy;
+	//~ double det_area = det.cx * det.cy;
+	
+	//~ assert(intersect_area >= 0 && (current_area + det_area) > 0);
+	//~ current->state = ((intersect_area / (current_area + det_area)) > IOU_THRESHOLD);
+//~ #undef IOU_THRESHOLD
+	return 0;
+}
+
 static void draw_frame(da_panel_t * panel, const input_frame_t * frame, json_object * jresult)
 {
+	shell_context_t * shell = panel->shell;
+	assert(shell && shell->user_data);
+	ai_context_t * ctx = shell->user_data;
+		
 	assert(frame->width > 1 && frame->height > 1);
 	cairo_surface_t * surface = panel->surface;
 	if(NULL == panel->surface 
@@ -445,6 +581,41 @@ static void draw_frame(da_panel_t * panel, const input_frame_t * frame, json_obj
 	memcpy(panel->image_data, frame->data, frame->width * frame->height * 4);
 	cairo_surface_mark_dirty(surface);
 	
+	assert(ctx->regions);
+	// init region masks
+	if(NULL == ctx->masks || frame->width != ctx->image_width || frame->height != ctx->image_height) {
+		if(ctx->masks) cairo_surface_destroy(ctx->masks);
+		ctx->masks = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, frame->width, frame->height);
+		ctx->image_width = frame->width;
+		ctx->image_height = frame->height;
+		assert(ctx->masks && cairo_surface_status(ctx->masks) == CAIRO_STATUS_SUCCESS);
+		
+		cairo_t * cr = cairo_create(ctx->masks);
+		cairo_set_source_rgba(cr, 255, 255, 255, 1);
+		cairo_paint(cr);
+		
+		//cairo_scale(cr, (double)frame->width, (double)frame->height);
+		for(int i = 0; i < ctx->regions_count; ++i) {
+			double color_index = (double)(i + 1) / 255.0;
+			cairo_set_source_rgb(cr, color_index, color_index, color_index);
+			region_data_t * region = &ctx->regions[i];
+			if(region->count >= 3) {
+				cairo_new_path(cr);
+				cairo_move_to(cr, region->points[0].x * frame->width, region->points[0].y * frame->height);
+				for(int ii = 1; ii < region->count; ++ii) {
+					cairo_line_to(cr, region->points[ii].x * frame->width, region->points[ii].y * frame->height);
+				}
+				cairo_close_path(cr);
+				cairo_fill_preserve(cr);
+				cairo_stroke(cr);
+			}
+		}
+		cairo_destroy(cr);
+	}
+	
+	// reset parking space states
+	for(int i = 0; i < ctx->regions_count; ++i) ctx->regions[i].state = 0;
+	
 	if(jresult)
 	{
 		json_object * jdetections = NULL;
@@ -454,33 +625,37 @@ static void draw_frame(da_panel_t * panel, const input_frame_t * frame, json_obj
 		
 		double width = frame->width;
 		double height = frame->height;
+		
 		if(ok && jdetections)
 		{
 			int count = json_object_array_length(jdetections);
 			cairo_set_line_width(cr, 2);
 			cairo_set_source_rgb(cr, 1, 1, 0);
-			cairo_select_font_face(cr, "Droid Sans", CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_NORMAL);
-			cairo_set_font_size(cr, 12);
+			cairo_select_font_face(cr, "IPAMincho", CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_NORMAL);
+			cairo_set_font_size(cr, 15);
+			
 			for(int i = 0; i < count; ++i)
 			{
 				json_object * jdet = json_object_array_get_idx(jdetections, i);
 				assert(jdet);
 				const char * class_name = json_get_value(jdet, string, class);
-				
-				double x = json_get_value(jdet, double, left) * width;
-				double y = json_get_value(jdet, double, top) * height;
+
+				if(strcasecmp(class_name, "car") && strcasecmp(class_name, "truck")) continue;
+							
+				double x = json_get_value(jdet, double, left);
+				double y = json_get_value(jdet, double, top);
 				double cx = json_get_value(jdet, double, width);
-			#define PERSON_MAX_WIDTH 0.85
-				if(cx > PERSON_MAX_WIDTH && strcasecmp(class_name, "person") == 0) continue;	
-			#undef PERSON_MAX_WIDTH
-				cx *= width;
+				double cy = json_get_value(jdet, double, height);
 				
-				double cy = json_get_value(jdet, double, height) * height;
+				check_region_state(ctx, x, y, cx, cy);
 				
-				cairo_rectangle(cr, x, y, cx, cy);
+				cairo_rectangle(cr, x * width, y * height, cx * width, cy * height);
 				cairo_stroke(cr);
 				
-				cairo_move_to(cr, x, y + 15);
+				cairo_arc(cr, (x + cx / 2) * width, (y + cy) * height, 5, 0.0, M_PI * 2.0);
+				cairo_fill(cr);
+				
+				cairo_move_to(cr, x * width, y * height + 20);
 				cairo_show_text(cr, class_name);
 			}
 		}
@@ -489,5 +664,187 @@ static void draw_frame(da_panel_t * panel, const input_frame_t * frame, json_obj
 	}
 	
 	gtk_widget_queue_draw(panel->da);
+	gtk_widget_queue_draw(shell->panels[1]->da);
 	return;
 }
+
+static int load_config(ai_context_t * ctx, const char * conf_file)
+{
+	json_object * jconfig = json_object_from_file(conf_file);
+	assert(jconfig);
+	ctx->jconfig = jconfig;
+	ctx->app_title = json_get_value_default(jconfig, string, title, APP_TITLE); 
+	ctx->css_file = json_get_value(jconfig, string, styles);
+	
+	json_object * jinput = NULL;
+	json_object * jai_engine = NULL;
+	json_bool ok = FALSE;
+	
+	ok = json_object_object_get_ex(jconfig, "input", &jinput);
+	assert(ok && jinput);
+	ctx->jinput = jinput;
+	
+	ok = json_object_object_get_ex(jconfig, "ai-engine", &jai_engine);
+	assert(ok && jai_engine);
+	
+	if(NULL == ctx->video_src) ctx->video_src = json_get_value(jinput, string, uri);
+	else json_object_object_add(jinput, "uri", json_object_new_string(ctx->video_src));
+	
+	if(NULL == ctx->video_src) {
+		ctx->video_src = "/dev/video0";
+		json_object_object_add(jinput, "uri", json_object_new_string(ctx->video_src));
+	}
+	assert(ctx->video_src && ctx->video_src[0]);
+	
+	
+	if(NULL == ctx->server_url) ctx->server_url = json_get_value(jai_engine, string, url);
+	else json_object_object_add(jai_engine, "url", json_object_new_string(ctx->server_url));
+	
+	if(NULL == ctx->server_url) {
+		ctx->server_url =  "http://127.0.0.1:9090/ai";
+		json_object_object_add(jai_engine, "url", json_object_new_string(ctx->server_url));
+	}
+	assert(ctx->server_url && ctx->server_url[0]);
+	
+	json_object * jsettings = NULL;
+	ok = json_object_object_get_ex(jconfig, "settings", &jsettings);
+	assert(ok && jsettings);
+	
+	int regions_count = json_object_array_length(jsettings);
+	if(regions_count <= 0) return -1;
+	
+	assert(regions_count < MAX_REGIONS);
+	
+	ctx->regions_count = regions_count;
+	if(NULL == ctx->regions) ctx->regions = calloc(MAX_REGIONS, sizeof(*ctx->regions));
+	assert(ctx->regions);
+	
+	for(int i = 0; i < regions_count; ++i)
+	{
+		json_object * jpoints = json_object_array_get_idx(jsettings, i);
+		assert(jpoints);
+		int points_count = json_object_array_length(jpoints);
+		if(points_count > MAX_REGION_POINTS) points_count = MAX_REGION_POINTS;
+		
+		region_data_t * region = &ctx->regions[i];
+		region->count = points_count;
+
+#define set_if_min_or_max(value, min, max) do { if(value > max) max = value; if(value < min) min = value; } while(0)
+
+		double x_min = 99999, y_min = 99999;
+		double x_max = -99999, y_max = -99999;
+		for(int ii = 0; ii < points_count; ++ii) {
+			json_object * jpoint = json_object_array_get_idx(jpoints, ii);
+			region->points[ii].x = json_object_get_double(json_object_array_get_idx(jpoint, 0));
+			region->points[ii].y = json_object_get_double(json_object_array_get_idx(jpoint, 1));
+			
+			set_if_min_or_max(region->points[ii].x, x_min, x_max);
+			set_if_min_or_max(region->points[ii].y, y_min, y_max);
+		}
+		if(points_count > 0) {
+			region->bbox.x = x_min;
+			region->bbox.y = y_min;
+			region->bbox.cx = (x_max - x_min);
+			region->bbox.cy = (y_max - y_min);
+		}
+#undef set_if_min_or_max
+	}
+	return 0;
+}
+
+
+static gboolean draw_main_panel(struct da_panel * panel, cairo_t * cr, void * user_data)
+{
+	shell_context_t * shell = user_data;
+	assert(shell);
+	
+	ai_context_t * ctx = shell->user_data;
+	assert(ctx);
+	
+	if(panel->width < 1|| panel->height < 1) return FALSE;
+	if(NULL == panel->surface 
+		|| panel->image_width < 1 || panel->image_height < 1)
+	{
+		cairo_set_source_rgba(cr, 0, 0, 0, 1);
+		cairo_paint(cr);
+		return FALSE;
+	}
+	
+	double sx = (double)panel->width / (double)panel->image_width;
+	double sy = (double)panel->height / (double)panel->image_height;
+	cairo_save(cr);
+	cairo_scale(cr, sx, sy);
+	cairo_set_source_surface(cr, panel->surface, panel->x_offset, panel->y_offset);
+	cairo_paint(cr);
+	cairo_restore(cr);
+	
+	if(NULL == ctx->regions || ctx->regions_count <= 0) return FALSE;
+	
+	//debug_printf("masks: %d x %d\n", ctx->image_width, ctx->image_height);
+	for(int i = 0; i < ctx->regions_count; ++i)
+	{
+		region_data_t * region = &ctx->regions[i];
+		if(region->count <= 0) continue;
+		
+		double r = 1, g = 0, b = 0;
+		if(region->state < 0) { r = 0.5; g = 0.5; b = 0.5; }
+		else if(region->state == 0) { r = 0; g = 1; b = 0; }
+		
+		double dashes[1] = { 1 };
+		cairo_set_line_width(cr, 2);
+		cairo_set_dash(cr, dashes, 1, 0);
+		cairo_set_source_rgba(cr, r, g, b, 0.3);
+		cairo_new_path(cr);
+		cairo_move_to(cr, region->points[0].x * panel->width, region->points[0].y * panel->height);
+		for(int ii = 1; ii < region->count; ++ii) {
+			cairo_line_to(cr, region->points[ii].x * panel->width, region->points[ii].y * panel->height);
+		}
+		cairo_close_path(cr);
+		cairo_fill_preserve(cr);
+		cairo_set_source_rgba(cr, r, g, b, 1.0);
+		cairo_stroke(cr);
+	}
+	
+	return FALSE;
+}
+
+static gboolean draw_masks_panel(struct da_panel * panel, cairo_t * cr, void * user_data)
+{
+	shell_context_t * shell = user_data;
+	assert(shell);
+	
+	ai_context_t * ctx = shell->user_data;
+	assert(ctx);
+	
+	//debug_printf("masks: %d x %d", ctx->image_width, ctx->image_height);
+	if(panel->width < 1|| panel->height < 1) return FALSE;
+	
+	if(NULL == ctx->masks 
+		|| ctx->image_width < 1 || ctx->image_height < 1)
+	{
+		cairo_set_source_rgba(cr, 0, 0, 0, 1);
+		cairo_paint(cr);
+		return FALSE;
+	}
+	
+	
+	
+	double sx = (double)panel->width / (double)ctx->image_width;
+	double sy = (double)panel->height / (double)ctx->image_height;
+	cairo_save(cr);
+	cairo_scale(cr, sx, sy);
+	cairo_set_source_surface(cr, ctx->masks, panel->x_offset, panel->y_offset);
+	cairo_paint(cr);
+	cairo_restore(cr);
+	
+	
+	cairo_move_to(cr, 20, 30);
+	cairo_set_source_rgb(cr, 0, 0, 1);
+	cairo_set_font_size(cr, 18);
+	cairo_set_line_width(cr, 3);
+	cairo_select_font_face(cr, "DejaVu Sans Mono", CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_BOLD);
+	cairo_show_text(cr, "masks view");
+	return FALSE;
+	
+}
+

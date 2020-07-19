@@ -10,7 +10,7 @@ fi
 echo "build '${target}' ..."
 case ${target} in
     demo-01|demo-02|demo-03|config-tools|demo-01-win)
-        gcc -std=gnu99 -g -Wall -I../include  \
+        gcc -std=gnu99 -g -Wall -I../include  -D_DEBUG \
             -o ${target} ${target}.c da_panel.c \
             ../lib/libann-utils.a  \
             -lm -lpthread -ljson-c -ldl \

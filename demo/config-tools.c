@@ -85,14 +85,15 @@ typedef struct shell_context
 	GtkWidget * uri_entry;
 	GtkWidget * treeview;
 	GtkWidget * statusbar;
-	da_panel_t * panels[0];
+	da_panel_t * panels[1];
 	
 	char app_path[PATH_MAX];
 	char conf_file[PATH_MAX];
-	
+
 	pthread_t th;
 	pthread_mutex_t mutex;
 	pthread_cond_t cond;
+	
 	
 	input_frame_t frame[1];
 
@@ -142,7 +143,7 @@ static int parse_args(int argc, char ** argv, global_param_t * params)
 	
 	json_object * jsettings = params->jsettings;
 	params->count = json_object_array_length(jsettings);
-	assert(params->count > 0);
+	if(params->count <= 0) return 0;
 	
 	region_data_t * regions = params->regions;
 	for(int i = 0; i < params->count; ++i)
@@ -385,6 +386,8 @@ static gboolean on_draw(struct da_panel * panel, cairo_t * cr, void * user_data)
 	
 	global_param_t * params = shell->user_data;
 	assert(params);
+	
+	printf("points_count: %d, params->count=%d\n", shell->points_count, (int)params->count);
 	if(params->count > 0)
 	{
 		cairo_new_path(cr);
@@ -479,25 +482,32 @@ static gboolean on_key_release(struct da_panel * panel, guint keyval, guint stat
 	shell_context_t * shell = panel->shell;
 	assert(shell);
 	
-	// printf("keyval: %u, shift-masks: %d\n", keyval, (state & GDK_SHIFT_MASK));
-	if(shell->edit_mode && (state & GDK_SHIFT_MASK)) {
-		printf("points_count: %d\n", shell->points_count);
-		
-		
-		global_param_t * params = shell->user_data;
-		assert(params);
-		
-		int count = params->count;
-		if(count < MAX_REGIONS && shell->points_count > 0)
-		{
-			++params->count;
-			params->regions[count].count = shell->points_count;
-			memcpy(params->regions[count].points, shell->points, shell->points_count * sizeof(point_d));
+	printf("keyval: %u, shift-masks: %d\n", keyval, (state & GDK_SHIFT_MASK));
+	switch(keyval)
+	{
+	case GDK_KEY_Shift_L:
+	case GDK_KEY_Shift_R:
+		if(shell->edit_mode && (state & GDK_SHIFT_MASK)) {
+			global_param_t * params = shell->user_data;
+			assert(params);
+			
+			printf("points_count: %d, params->count=%d\n", shell->points_count, (int)params->count);
+			
+			int count = params->count;
+			if(count < MAX_REGIONS && shell->points_count > 0)
+			{
+				++params->count;
+				params->regions[count].count = shell->points_count;
+				memcpy(params->regions[count].points, shell->points, shell->points_count * sizeof(point_d));
+			}
+			
+			shell->points_count = 0;
+			shell->edit_mode = 0;
+			gtk_widget_queue_draw(panel->da);
 		}
-		
-		shell->points_count = 0;
-		shell->edit_mode = 0;
-		gtk_widget_queue_draw(panel->da);
+		break;
+	default:
+		break;
 	}
 	
 	return FALSE;
@@ -558,6 +568,8 @@ static gboolean on_button_release(struct da_panel * panel, guint button, double 
 			shell->selection.x2 = shell->points[count].x;
 			shell->selection.y2 = shell->points[count].y;
 		}
+	}else {
+		shell->points_count = 0;
 	}
 	
 	
@@ -668,15 +680,52 @@ static void on_save_config(GtkWidget * button, shell_context_t * shell)
 
 static int load_config(shell_context_t * shell, const char * conf_file)
 {
-	assert(conf_file);
+	global_param_t * params = shell->user_data;
+	assert(params);
+	assert(conf_file && conf_file[0]);
 	strncpy(shell->conf_file, conf_file, sizeof(shell->conf_file));
 	
 	gtk_header_bar_set_subtitle(GTK_HEADER_BAR(shell->header_bar), shell->conf_file);
+	
+	json_object * jconfig = json_object_from_file(conf_file);
+	if(jconfig) {
+		if(params->jconfig) {
+			json_object_put(params->jconfig);
+		}
+		params->jconfig = jconfig;
+		
+		json_object * jsettings = NULL;
+		json_bool ok = json_object_object_get_ex(jconfig, "settings", &jsettings);
+		if(!ok || !jsettings) return -1;
+		
+		int count = json_object_array_length(jsettings);
+		if(count > 0) 
+		{
+			params->count = count;
+			assert(count <= MAX_REGIONS);
+			region_data_t * regions = params->regions;
+			for(int i = 0; i < count; ++i) {
+				json_object * jpoints = json_object_array_get_idx(jsettings, i);
+				region_data_t * region = &regions[i];
+				region->count = json_object_array_length(jpoints);
+				for(int ii = 0; ii < region->count; ++ii) {
+					json_object * jpoint = json_object_array_get_idx(jpoints, ii);
+					region->points[ii].x = json_object_get_double(json_object_array_get_idx(jpoint, 0));
+					region->points[ii].y = json_object_get_double(json_object_array_get_idx(jpoint, 1));
+				}
+			}
+		}
+	}
+	gtk_widget_queue_draw(shell->panels[0]->da);
+	
 	return 0;
 }
 
 static int save_config(shell_context_t * shell, const char * conf_file)
 {
+	global_param_t * params = shell->user_data;
+	assert(params);
+	
 	if(NULL == conf_file) conf_file = shell->conf_file;
 	else {
 		strncpy(shell->conf_file, conf_file, sizeof(shell->conf_file));
@@ -685,7 +734,34 @@ static int save_config(shell_context_t * shell, const char * conf_file)
 	
 	assert(conf_file && conf_file[0]);
 	
-	printf("save to %s\n", conf_file);
+	debug_printf("save to %s\n", conf_file);
+	json_object * jconfig = params->jconfig;
+	if(NULL == jconfig) jconfig = json_object_new_object();
+	else json_object_object_del(jconfig, "settings");
+	
+	json_object * jsettings = json_object_new_array();
+	assert(jsettings);
+	json_object_object_add(jconfig, "settings", jsettings);
+	
+	printf("params->count: %d\n", (int)params->count);
+	for(ssize_t i = 0; i < params->count; ++i)
+	{
+		region_data_t * region = &params->regions[i];
+		if(region->count >= 3)
+		{
+			json_object * jpoints = json_object_new_array();
+			for(ssize_t ii = 0; ii < region->count; ++ii) {
+				json_object * jpoint = json_object_new_array();
+				json_object_array_add(jpoint, json_object_new_double(region->points[ii].x));
+				json_object_array_add(jpoint, json_object_new_double(region->points[ii].y));
+				json_object_array_add(jpoints, jpoint);
+			}
+			json_object_array_add(jsettings, jpoints);
+		}
+	}
+	json_object_to_file_ext(conf_file, jconfig, JSON_C_TO_STRING_SPACED);
+	json_object_put(jconfig);
+	
 	return 0;
 }
 
