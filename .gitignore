@@ -38,6 +38,8 @@ backup/
 *.png
 *.avi
 *.mp4
-
+*.mkv
+*.webm
+*.m4a
 
 

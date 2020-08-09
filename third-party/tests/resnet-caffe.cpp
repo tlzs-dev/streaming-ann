@@ -164,6 +164,10 @@ int main(int argc, char **argv)
 	
 	caffe::Blob<float> * det = results[0];
 	printf("output_dim: %d x %d x %d\n", det->channels(), det->width(), det->height());
+	const float * result = det->cpu_data();
+	for(int i = 0; i < det->channels() * det->width() * det->height(); ++i) {
+		printf("%.6f\n", result[i]);
+	}
 	
 	free(input);
 	return 0;

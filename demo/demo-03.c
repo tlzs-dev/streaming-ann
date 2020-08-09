@@ -446,7 +446,7 @@ static void init_windows(shell_context_t * shell)
 	}
 	
 	gtk_header_bar_set_show_close_button(GTK_HEADER_BAR(header_bar), TRUE);
-	gtk_header_bar_set_title(GTK_HEADER_BAR(header_bar), "DEMO-01");
+	gtk_header_bar_set_title(GTK_HEADER_BAR(header_bar), ctx->app_title);
 
 	struct da_panel * panel = da_panel_init(NULL, 640, 480, shell);
 	assert(panel);
@@ -520,19 +520,20 @@ static inline int check_region_state(ai_context_t * ctx, double x, double y, dou
 	rect_d det = (rect_d){x, y, cx, cy};
 	
 	// set region->state to -1 if the sight was blocked
-#define IOU_THRESHOLD 0.4
+#define IOU_THRESHOLD 0.2
 	double det_area = det.cx * det.cy;
 	for(int i = 0; i < ctx->regions_count; ++i)
 	{
 		region_data_t * region = &regions[i];
-		rect_d intersect = rect_d_intesect(region->bbox, det);
-		
-		double intersect_area = intersect.cx * intersect.cy;
 		double current_area = region->bbox.cx * region->bbox.cy;
+		if(current_area <= 0) continue;
 		
+		rect_d intersect = rect_d_intesect(region->bbox, det);
+		double intersect_area = intersect.cx * intersect.cy;
+	
 		assert(intersect_area >= 0 && (current_area + det_area) > 0);
 		if ((y + cy / 2) >= (region->bbox.y + region->bbox.cy) 
-		//	&&  (intersect_area / (current_area + det_area)) > IOU_THRESHOLD
+			&&  ((intersect_area / current_area) >= IOU_THRESHOLD)
 		) {
 			region->state = -1;	
 		}

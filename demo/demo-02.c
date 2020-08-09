@@ -594,6 +594,9 @@ static void draw_frame(da_panel_t * panel, const input_frame_t * frame, json_obj
 				assert(jdet);
 				const char * class_name = json_get_value(jdet, string, class);
 				
+				int class_index = json_get_value(jdet, int, class_index);
+				if(class_index < 0 || class_index > 3) continue;	// only show classes which index equal or less than 3
+				
 				double x = json_get_value(jdet, double, left) * width;
 				double y = json_get_value(jdet, double, top) * height;
 				double cx = json_get_value(jdet, double, width);

@@ -68,7 +68,7 @@ struct caffe_model_private
 	int has_means_scalar;
 	std::vector<float> means;
 	
-	float value_scale;	// value range: [ 0 .. <value_scale> ]
+	float value_scale;	// value range: [ 0 , (255.0f * <value_scale>) ]
 	int has_output_names;
 	std::vector<const char *> output_names;
 protected:
@@ -286,7 +286,8 @@ static int bgra_to_float32_planes(
 	return 0;
 }
 
-static inline void caffe_tensor_set_output(caffe_tensor_t * result, const char * name, const caffe::Blob<float>* out) {
+static inline void caffe_tensor_set_output(caffe_tensor_t * result, const char * name, const caffe::Blob<float>* out) 
+{
 	assert(name && result && out);
 	result->name = strdup(name);
 	
@@ -350,7 +351,7 @@ static ssize_t caffe_model_predict(struct caffe_model_plugin * plugin, const bgr
 	input_layer->set_cpu_data(input_data);
 	const std::vector<caffe::Blob<float>*> & outputs = net.ForwardPrefilled();
 	
-	if(input) caffe_tensor_cleanup(input);
+	if(input) { caffe_tensor_cleanup(input); free(input); }
 	else if(input_data) { free(input_data); };
 	
 	// output
@@ -392,7 +393,7 @@ static ssize_t caffe_model_predict(struct caffe_model_plugin * plugin, const bgr
 	*p_results = results;
 	return num_outputs;
 }
-#if defined(_TEST_CAFFE_MODEL) && defined(_STAND_ALONE)
+#if defined(_TEST_CAFFE_WRAPPER) && defined(_STAND_ALONE)
 int main(int argc, char **argv)
 {
 	
